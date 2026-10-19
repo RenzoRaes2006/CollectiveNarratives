@@ -168,5 +168,47 @@ public class HubTests : IAsyncLifetime
         Assert.Contains(text, html);
     }
 
+    // ---------- Zicht van de speler ----------
+
+    static readonly byte[] FakeJpeg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 0xFF, 0xD9];
+
+    static HttpRequestMessage FramePost(string code, string? token, byte[] body)
+    {
+        var msg = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{code}/frame") { Content = new ByteArrayContent(body) };
+        msg.Content.Headers.ContentType = new("image/jpeg");
+        if (token is not null) msg.Headers.Add("X-Game-Token", token);
+        return msg;
+    }
+
+    [Fact]
+    public async Task Game_frames_reach_the_big_screen()
+    {
+        await using var game = await _server.Connect(TestServer.GameKey);
+        var session = await game.InvokeAsync<CreateSessionResult>("CreateSession");
+        Assert.Equal(HttpStatusCode.NoContent, (await _server.Http.GetAsync($"/api/sessions/{session.Code}/frame.jpg")).StatusCode);
+
+        var posted = await _server.Http.SendAsync(FramePost(session.Code, session.GameToken, FakeJpeg));
+
+        Assert.Equal(HttpStatusCode.NoContent, posted.StatusCode);
+        var frame = await _server.Http.GetAsync($"/api/sessions/{session.Code}/frame.jpg");
+        Assert.Equal("image/jpeg", frame.Content.Headers.ContentType!.MediaType);
+        Assert.Equal(FakeJpeg, await frame.Content.ReadAsByteArrayAsync());
+        Assert.True(frame.Headers.CacheControl!.NoStore);
+    }
+
+    [Fact]
+    public async Task Only_the_game_can_send_frames_and_only_jpegs()
+    {
+        await using var game = await _server.Connect(TestServer.GameKey);
+        var session = await game.InvokeAsync<CreateSessionResult>("CreateSession");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _server.Http.SendAsync(FramePost(session.Code, null, FakeJpeg))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _server.Http.SendAsync(FramePost(session.Code, "verkeerd", FakeJpeg))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _server.Http.SendAsync(FramePost(session.Code, session.GameToken, [1, 2, 3, 4]))).StatusCode);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await _server.Http.SendAsync(FramePost(session.Code, session.GameToken, new byte[WebApp.MaxFrameBytes + 1]))).StatusCode);
+        string other = session.Code == "999999" ? "999998" : "999999";
+        Assert.Equal(HttpStatusCode.NotFound, (await _server.Http.SendAsync(FramePost(other, session.GameToken, FakeJpeg))).StatusCode);
+    }
+
     sealed record StatusBody(string Status);
 }

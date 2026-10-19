@@ -253,6 +253,26 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Frames_are_throttled_and_go_stale()
+    {
+        var s = await Make.PairedSession(_time, _events);
+        byte[] a = [0xFF, 0xD8, 0xFF, 1], b = [0xFF, 0xD8, 0xFF, 2];
+
+        Assert.True(s.SetFrame(a));
+        Assert.False(s.SetFrame(b)); // te snel na het vorige
+        _time.Advance(TimeSpan.FromMilliseconds(50));
+        Assert.True(s.SetFrame(b));
+        Assert.Same(b, s.GetFrame());
+
+        _time.Advance(TimeSpan.FromSeconds(6)); // game stuurt niets meer
+        Assert.Null(s.GetFrame());
+
+        await s.End();
+        _time.Advance(TimeSpan.FromSeconds(1));
+        Assert.False(s.SetFrame(a));
+    }
+
+    [Fact]
     public async Task Game_can_resume_with_its_token_only()
     {
         var s = Make.Session(_time, _events);

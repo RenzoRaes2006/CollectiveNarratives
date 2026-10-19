@@ -413,6 +413,36 @@ public sealed class Session
         AddState(fx);
     }
 
+    // ---------- Zicht van de speler (fase 5a) ----------
+
+    // De game stuurt een paar keer per seconde een JPEG; het grote scherm haalt telkens het nieuwste op.
+    public static readonly TimeSpan MinFrameInterval = TimeSpan.FromMilliseconds(40); // max. 25 beelden per seconde
+    public static readonly TimeSpan FrameMaxAge = TimeSpan.FromSeconds(5); // ouder: geen beeld meer tonen
+
+    byte[]? _frame;
+    DateTimeOffset _frameAt;
+
+    // false: te snel na het vorige beeld, of de sessie is afgelopen.
+    public bool SetFrame(byte[] jpeg)
+    {
+        var now = _time.GetUtcNow();
+        lock (_lock)
+        {
+            if (_phase == SessionPhase.Ended || now - _frameAt < MinFrameInterval) return false;
+            _frame = jpeg;
+            _frameAt = now;
+            return true;
+        }
+    }
+
+    // Het nieuwste beeld, of null als er (al een tijdje) geen is.
+    public byte[]? GetFrame()
+    {
+        var now = _time.GetUtcNow();
+        lock (_lock)
+            return _frame is not null && now - _frameAt <= FrameMaxAge ? _frame : null;
+    }
+
     // ---------- Einde ----------
 
     public async Task SetEnding(string ending)

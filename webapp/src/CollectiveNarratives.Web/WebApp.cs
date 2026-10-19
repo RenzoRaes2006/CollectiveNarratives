@@ -9,6 +9,9 @@ namespace CollectiveNarratives.Web;
 
 public static class WebApp
 {
+    // Een beeld van 640×360 in JPEG is ongeveer 30–60 KB.
+    public const int MaxFrameBytes = 300 * 1024;
+
     // configure: voor de tests (bv. een nep-klok of andere instellingen).
     public static WebApplication Create(WebApplicationOptions options, Action<WebApplicationBuilder>? configure = null)
     {
@@ -95,6 +98,32 @@ public static class WebApp
             using var generator = new QRCodeGenerator();
             using var data = generator.CreateQrCode($"{publicUrl.For(http)}/poll/{code}", QRCodeGenerator.ECCLevel.M);
             return Results.File(new PngByteQRCode(data).GetGraphic(20), "image/png");
+        });
+
+        // Zicht van de speler (fase 5a): de game POST een JPEG met zijn gameToken, het grote scherm haalt het nieuwste op.
+        app.MapPost("/api/sessions/{code}/frame", async (string code, HttpRequest request, SessionStore store) =>
+        {
+            if (!store.TryGet(code, out var session)) return Results.NotFound();
+            if (!session.IsGameToken(request.Headers["X-Game-Token"].ToString())) return Results.Unauthorized();
+            if (request.ContentLength is not { } length || length <= 0) return Results.StatusCode(411);
+            if (length > MaxFrameBytes) return Results.StatusCode(413);
+
+            var jpeg = new byte[length];
+            await request.Body.ReadExactlyAsync(jpeg);
+            if (jpeg.Length < 3 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 || jpeg[2] != 0xFF) return Results.BadRequest(); // geen JPEG
+            return session.SetFrame(jpeg) ? Results.NoContent() : Results.StatusCode(429);
+        });
+
+        app.MapGet("/api/sessions/{code}/frame.jpg", (string code, HttpContext http, SessionStore store, JoinGuard guard) =>
+        {
+            string ip = http.Connection.RemoteIpAddress?.ToString() ?? "?";
+            if (!store.TryGet(code, out var session))
+            {
+                guard.RecordFailure(ip);
+                return Results.NotFound();
+            }
+            http.Response.Headers.CacheControl = "no-store";
+            return session.GetFrame() is { } jpeg ? Results.File(jpeg, "image/jpeg") : Results.NoContent();
         });
 
         // Ingebouwde keuzes, voor de hostpagina (nep-game).
