@@ -1,4 +1,4 @@
-# Koppeling webapp ↔ Unity (Home Alone VR)
+# Koppeling webapp ↔ Unity (Home Together)
 
 Dit document is de afspraak tussen de stem-webapp (map `webapp/`) en het Unity-project (`CN_VR/`).
 Iemand kan hiermee de Unity-kant bouwen (QR-code, stemmen starten, resultaat gebruiken) terwijl de webapp verder wordt gebouwd.

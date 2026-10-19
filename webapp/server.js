@@ -1,4 +1,4 @@
-// Stemserver voor Home Alone VR.
+// Stemserver voor Home Together.
 // Telefoons (publiek) praten via WebSocket. Unity en de host-pagina gebruiken de HTTP-API.
 // De afspraken met Unity staan in UNITY-KOPPELING.md: pas die mee aan als je hier iets verandert.
 

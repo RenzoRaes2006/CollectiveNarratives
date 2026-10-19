@@ -217,7 +217,7 @@ public class ApplicationConnection : MonoBehaviour
 
         // Wachtkamer
         waitingPanel = Panel(root, "Wachtkamer");
-        Label(waitingPanel.transform, "Home Alone VR", 72, new Vector2(0, 420), new Vector2(1600, 100));
+        Label(waitingPanel.transform, "Home Together", 72, new Vector2(0, 420), new Vector2(1600, 100));
         Label(waitingPanel.transform, "Scan de QR-code en doe mee", 40, new Vector2(0, 340), new Vector2(1600, 60));
         var qrBg = Box(waitingPanel.transform, "QR achtergrond", Color.white, new Vector2(0, 40), new Vector2(480, 480));
         qrImage = new GameObject("QR", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();

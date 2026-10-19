@@ -1,4 +1,4 @@
-/* Home Alone-stijl: winternacht, kerstrood, dennengroen, goud en sneeuw. */
+/* Home Together-stijl: winternacht, kerstrood, dennengroen, goud en sneeuw. */
 
 :root {
   --night: #0b1324;
@@ -139,7 +139,7 @@ main {
 }
 
 .logo .home,
-.logo .alone {
+.logo .together {
   display: block;
   font-size: 2.6rem;
   color: var(--text);
@@ -148,7 +148,7 @@ main {
     6px 6px 0 rgba(0, 0, 0, 0.35);
 }
 
-.logo .alone {
+.logo .together {
   color: var(--red);
   text-shadow:
     3px 3px 0 var(--text),
