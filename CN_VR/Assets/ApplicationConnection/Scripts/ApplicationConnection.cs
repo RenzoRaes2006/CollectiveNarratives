@@ -138,7 +138,7 @@ public class ApplicationConnection : MonoBehaviour
 
         if (phase == Phase.WaitingRoom)
         {
-            serverText.text = online ? $"Server verbonden ({voteClient.serverUrl})" : $"Server niet bereikbaar: {voteClient?.serverUrl}";
+            serverText.text = online ? $"Server verbonden ({voteClient.ActiveUrl})" : $"Server niet bereikbaar op {voteClient?.ActiveUrl}. Draait 'npm start' in webapp?";
             serverText.color = online ? new Color(0.5f, 1f, 0.6f) : new Color(1f, 0.5f, 0.5f);
             viewersText.text = s != null ? $"{s.viewers} kijker{(s.viewers == 1 ? "" : "s")} verbonden" : "0 kijkers verbonden";
             if (voteClient != null && voteClient.QrTexture != null && qrImage.texture != voteClient.QrTexture)

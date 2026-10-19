@@ -22,14 +22,30 @@ public class VoteClient : MonoBehaviour
 {
     [Tooltip("Adres van de laptop met de webapp, bv. http://192.168.1.10:3000 (verandert per netwerk)")]
     public string serverUrl = "http://192.168.1.10:3000";
+    [Tooltip("In de Unity Editor draait de server op dezelfde laptop: dan altijd localhost gebruiken (de QR wijst nog steeds naar het wifi-adres)")]
+    public bool useLocalhostInEditor = true;
     public float pollInterval = 0.25f;
 
     public VoteState State { get; private set; }
     public bool Connected { get; private set; }
     public string JoinUrl { get; private set; } = "";
     public Texture2D QrTexture { get; private set; }
+    bool warnedOffline;
 
-    string Url(string path) => serverUrl.TrimEnd('/') + path;
+    // Het adres dat echt gebruikt wordt (in de Editor localhost, op de Quest serverUrl).
+    public string ActiveUrl
+    {
+        get
+        {
+#if UNITY_EDITOR
+            if (useLocalhostInEditor && Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri))
+                return $"http://localhost:{uri.Port}";
+#endif
+            return serverUrl.TrimEnd('/');
+        }
+    }
+
+    string Url(string path) => ActiveUrl + path;
 
     IEnumerator Start()
     {
@@ -48,6 +64,8 @@ public class VoteClient : MonoBehaviour
         req.timeout = 2;
         yield return req.SendWebRequest();
         Connected = req.result == UnityWebRequest.Result.Success;
+        if (!Connected && !warnedOffline) Debug.LogWarning($"[VoteClient] Server niet bereikbaar op {ActiveUrl}: {req.error}");
+        warnedOffline = !Connected;
         if (Connected) State = JsonUtility.FromJson<VoteState>(req.downloadHandler.text);
     }
 
@@ -70,6 +88,7 @@ public class VoteClient : MonoBehaviour
             QrTexture = DownloadHandlerTexture.GetContent(req);
             QrTexture.filterMode = FilterMode.Point; // scherpe blokjes, beter scanbaar
         }
+        else Debug.LogWarning($"[VoteClient] QR laden mislukt: {req.error}");
     }
 
     // Zelf opgebouwd i.p.v. UnityWebRequest.Post(url, json, type): werkt zo ook in oudere Unity-versies.
