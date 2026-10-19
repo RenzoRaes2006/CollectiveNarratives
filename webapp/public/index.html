@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Home Alone VR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="snow"></div>
+    <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <main>
+      <div class="logo">
+        <span class="home">Home</span>
+        <span class="alone">Alone</span>
+        <span class="vr">VR</span>
+      </div>
+      <div class="status" id="status">Verbinden...</div>
+
+      <!-- Wachten tussen keuzes -->
+      <section id="wait" class="center">
+        <h1>Jullie zijn het lot</h1>
+        <p>Kevin hoort jullie niet. Praat dus gerust hardop.</p>
+        <p class="muted">Wacht op de volgende keuze...</p>
+      </section>
+
+      <!-- Stemmen -->
+      <section id="vote" hidden>
+        <div class="bar"><div id="vote-bar"></div></div>
+        <p class="question" id="vote-question"></p>
+        <p class="message" id="vote-message" hidden></p>
+        <div class="options" id="vote-options"></div>
+        <p class="muted" id="vote-hint">Tik op een keuze. Je mag nog wisselen.</p>
+      </section>
+
+      <!-- Uitslag -->
+      <section id="result" class="center" hidden>
+        <p class="muted">Het lot heeft beslist</p>
+        <h1 id="result-text"></h1>
+        <p class="muted">Wacht op de volgende keuze...</p>
+      </section>
+
+      <!-- Samen-actie -->
+      <section id="together" class="center" hidden>
+        <p class="message">Allemaal tegelijk drukken!</p>
+        <button class="big-button" id="together-button"></button>
+        <p id="together-count" class="muted"></p>
+      </section>
+
+      <!-- Einde -->
+      <section id="ending" hidden>
+        <p class="muted" id="ending-number"></p>
+        <h1 id="ending-name"></h1>
+        <div class="card">
+          <p class="muted">Jullie keuzes</p>
+          <ul id="ending-choices"></ul>
+        </div>
+        <p class="muted">Wacht op een nieuwe ronde...</p>
+      </section>
+    </main>
+
+    <script src="common.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const sections = ["wait", "vote", "result", "together", "ending"];
+
+      let state = null;
+      let shownVoteId = 0;
+      let myChoice = null;
+      let voteEndsAt = 0;
+      let togetherWasActive = false;
+      let afterTogether = false; // samen-actie net afgelopen: toon die uitkomst i.p.v. de vorige stemming
+      let pressed = false;
+
+      const socket = connect("phone", render, (online) => {
+        $("status").textContent = online ? "Verbonden" : "Verbinding kwijt, opnieuw proberen...";
+        $("status").classList.toggle("offline", !online);
+      });
+
+      function show(name) {
+        for (const s of sections) $(s).hidden = s !== name;
+      }
+
+      function render(s) {
+        state = s;
+
+        if (s.ending) return renderEnding(s);
+        if (s.together.active) return renderTogether(s);
+        if (s.active) {
+          afterTogether = false;
+          return renderVote(s.vote);
+        }
+        if (togetherWasActive) afterTogether = true;
+        togetherWasActive = false;
+        if (afterTogether) {
+          $("result-text").textContent = s.lastTogether.success ? "Gelukt!" : "Net niet...";
+          return show("result");
+        }
+        if (s.last) {
+          $("result-text").textContent = s.last.winner ? winnerLabel(s.last) : "Gelijkspel: Kevin beslist";
+          return show("result");
+        }
+        show("wait");
+      }
+
+      function renderVote(vote) {
+        if (vote.voteId !== shownVoteId) {
+          // Nieuwe stemming: knoppen opnieuw opbouwen.
+          shownVoteId = vote.voteId;
+          myChoice = null;
+          voteEndsAt = Date.now() + vote.remaining * 1000;
+          $("vote-question").textContent = vote.question;
+          $("vote-message").textContent = vote.message;
+          $("vote-message").hidden = !vote.message;
+          $("vote-options").innerHTML = "";
+          for (const o of vote.options) {
+            const b = document.createElement("button");
+            b.className = "option";
+            b.innerHTML = "<span></span>";
+            b.firstChild.textContent = o.label;
+            b.dataset.id = o.id;
+            b.onclick = () => {
+              myChoice = o.id;
+              socket.send({ type: "choice", voteId: vote.voteId, option: o.id });
+              updateSelection();
+            };
+            $("vote-options").appendChild(b);
+          }
+        }
+        updateSelection();
+        show("vote");
+      }
+
+      function updateSelection() {
+        for (const b of $("vote-options").children) b.classList.toggle("selected", b.dataset.id === myChoice);
+        $("vote-options").classList.toggle("has-choice", !!myChoice);
+      }
+
+      function renderTogether(s) {
+        const t = s.together;
+        if (!togetherWasActive) {
+          togetherWasActive = true;
+          pressed = false;
+        }
+        $("together-button").textContent = t.label;
+        $("together-button").classList.toggle("pressed", pressed);
+        $("together-count").textContent = `${t.presses} van ${t.needed} drukken...`;
+        show("together");
+      }
+
+      $("together-button").onclick = () => {
+        pressed = true;
+        $("together-button").classList.add("pressed");
+        socket.send({ type: "press" });
+        if (navigator.vibrate) navigator.vibrate(50);
+      };
+
+      function renderEnding(s) {
+        $("ending-number").textContent = `Einde ${ENDING_ORDER.indexOf(s.ending) + 1} van 3`;
+        $("ending-name").textContent = ENDING_NAMES[s.ending];
+        $("ending-choices").innerHTML = "";
+        for (const r of s.history) {
+          const li = document.createElement("li");
+          li.textContent = r.winner ? winnerLabel(r) + (r.decidedBy === "kevin" ? " (Kevin koos)" : "") : "Kevin koos zelf";
+          $("ending-choices").appendChild(li);
+        }
+        show("ending");
+      }
+
+      // Aftelbalk soepel laten lopen tussen de updates door.
+      setInterval(() => {
+        if (state && state.active) {
+          const left = Math.max(0, voteEndsAt - Date.now());
+          $("vote-bar").style.width = (left / (state.vote.seconds * 1000)) * 100 + "%";
+        }
+      }, 100);
+    </script>
+  </body>
+</html>
