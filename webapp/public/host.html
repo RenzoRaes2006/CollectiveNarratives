@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Host – Home Alone VR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      main {
+        max-width: 720px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .row button,
+      .row input {
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: #2a3550;
+        color: var(--text);
+        border: 0;
+        font: inherit;
+      }
+      .row input {
+        min-width: 0;
+        flex: 1;
+      }
+      .row input[type="number"] {
+        flex: 0 0 80px;
+      }
+      .qr {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .qr img {
+        width: 140px;
+        height: 140px;
+        border-radius: 8px;
+        background: #fff;
+      }
+      h2 {
+        font-size: 1rem;
+        margin: 0 0 8px;
+        color: var(--muted);
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="snow"></div>
+    <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <main>
+      <div class="logo"><span class="home">Home</span><span class="alone">Alone</span><span class="vr">HOST</span></div>
+      <p class="muted">Doet wat Unity later doet, via dezelfde API (zie UNITY-KOPPELING.md).</p>
+
+      <div class="card qr">
+        <img src="/api/qr.png" alt="QR-code naar de stempagina" />
+        <div>
+          <p id="join-url"></p>
+          <p class="status" id="status">Verbinden...</p>
+          <p><strong id="viewers">0</strong> kijkers verbonden</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Keuze starten</h2>
+        <div class="row" id="choice-buttons"></div>
+        <div class="row" style="margin-top: 8px">
+          <input type="number" id="seconds" value="12" min="1" title="Seconden" />
+          <input id="message" placeholder="Extra regel (optioneel), bv. Ze zijn sneller dan verwacht." />
+          <button onclick="post('/api/stop')">Stop nu</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Samen-actie</h2>
+        <div class="row">
+          <input id="together-label" value="Laat de hond blaffen" />
+          <button onclick="post('/api/together', { label: $('together-label').value, seconds: 5 })">Start (5 s)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Einde / ronde</h2>
+        <div class="row">
+          <button onclick="post('/api/end', { ending: 'held' })">Held van de straat</button>
+          <button onclick="post('/api/end', { ending: 'weg' })">Net op tijd weg</button>
+          <button onclick="post('/api/end', { ending: 'cadeau' })">Cadeau is weg</button>
+          <button onclick="post('/api/reset')">Nieuwe ronde</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Live</h2>
+        <pre id="live">-</pre>
+      </div>
+    </main>
+
+    <script src="common.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      async function post(path, body = {}) {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) alert((await res.json()).error);
+      }
+
+      fetch("/api/info")
+        .then((r) => r.json())
+        .then((i) => ($("join-url").textContent = i.joinUrl));
+
+      fetch("/api/choices")
+        .then((r) => r.json())
+        .then((choices) => {
+          for (const id of Object.keys(choices)) {
+            const b = document.createElement("button");
+            b.textContent = id;
+            b.onclick = () => post("/api/start", { id, seconds: Number($("seconds").value), message: $("message").value });
+            $("choice-buttons").appendChild(b);
+          }
+        });
+
+      function line(r) {
+        const counts = r.options.map((o) => `${o.label}: ${o.count}`).join("  ·  ");
+        return `${r.id} → ${r.winner || "Kevin beslist"} (${r.decidedBy})   [${counts}]`;
+      }
+
+      connect("host", (s) => {
+        $("viewers").textContent = s.viewers;
+        const out = [];
+        if (s.active) {
+          out.push(`STEMMEN: ${s.vote.question}  (${s.vote.remaining}s, ${s.vote.total} stemmen)`);
+          for (const o of s.vote.options) out.push(`  ${o.label}: ${o.count}`);
+        } else out.push("Geen stemming bezig");
+        if (s.together.active) out.push(`SAMEN: "${s.together.label}"  ${s.together.presses} van ${s.together.needed}`);
+        if (s.lastTogether.attempt)
+          out.push(`Laatste samen-actie: ${s.lastTogether.success ? "gelukt" : "mislukt"} (${s.lastTogether.presses}/${s.lastTogether.needed})`);
+        if (s.ending) out.push(`Einde: ${ENDING_NAMES[s.ending]}`);
+        if (s.history.length) out.push("", "Geschiedenis:", ...s.history.map(line));
+        $("live").textContent = out.join("\n");
+      }, (online) => {
+        $("status").textContent = online ? "Verbonden met server" : "Server niet bereikbaar";
+        $("status").classList.toggle("offline", !online);
+      });
+    </script>
+  </body>
+</html>
