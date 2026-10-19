@@ -107,3 +107,6 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+# Echte game key voor de online server (zie webapp/UNITY-KOPPELING.md). Nooit committen.
+/Assets/ApplicationConnection/Resources/GameKey.txt
+/Assets/ApplicationConnection/Resources/GameKey.txt.meta
