@@ -10,7 +10,7 @@
 | 1. Server | Klaar: `webapp/src/CollectiveNarratives.Web`, 53 tests groen. Node-versie verwijderd. `UNITY-KOPPELING.md` herschreven. |
 | 2. Websitepagina's | Klaar: `/`, `/poll/{code}`, `/screen`, `/screen/{code}`, `/host` (nep-game). Volledige flow getest in de browser. |
 | 3. Unity | Klaar in de testscene `ApplicationConnection`: code in de bril, koppelen, tutorial-placeholder + 60 s, teststemming. **Nog niet in Play mode getest** (Unity was niet bereikbaar vanuit Claude). |
-| 4. DevOps | Bestanden klaar: `webapp/Dockerfile`, `deploy/`, `.github/workflows/web.yml`. Wacht op de VPS en de GitHub-secrets: zie `deploy/README.md`. |
+| 4. DevOps | Bestanden klaar: `webapp/Dockerfile`, `deploy/`, `.github/workflows/web.yml`. Wacht op de VPS (`deploy/README.md`) en daarna DNS en GitHub-secrets (`deploy/EIGENAAR.md`). |
 | 5, 6 | Nog niet begonnen. Plekken op `/screen` staan klaar. |
 
 Dit plan beschrijft hoe de stem-website online komt op onze VPS en ons domein, met een groot-schermpagina en een SignalR-koppeling met de game. Zodra we op de server kunnen, werken we het af van boven naar beneden. Alleen de website gaat online, de game niet.
