@@ -1,0 +1,42 @@
+# Draait op de VPS in /opt/collective-narratives/. De pipeline (.github/workflows/web.yml) zet dit bestand
+# en de Caddyfile daar neer. Geheimen staan in /opt/collective-narratives/.env (niet in git):
+#   GAME_KEY=<lange willekeurige sleutel, dezelfde als in Unity: Resources/GameKey.txt>
+#   IMAGE_TAG=<commit-sha die nu live staat, zet de pipeline zelf>
+services:
+  web:
+    image: ghcr.io/renzoraes2006/collectivenarratives-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      GAME_KEY: ${GAME_KEY:?GAME_KEY ontbreekt in .env}
+      PUBLIC_URL: https://collective-narratives.app
+    # Geen "ports": de app is alleen via Caddy bereikbaar (daarom vertrouwt hij de X-Forwarded-headers).
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificaten: niet weggooien
+      - caddy_config:/config
+    depends_on:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
