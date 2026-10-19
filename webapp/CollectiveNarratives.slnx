@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CollectiveNarratives.Web/CollectiveNarratives.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CollectiveNarratives.Web.Tests/CollectiveNarratives.Web.Tests.csproj" />
+    <Project Path="tests/UnityCompat/UnityCompat.csproj" />
+  </Folder>
+</Solution>

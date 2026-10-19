@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Groot scherm – Home Alone VR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/screen.css" />
+  </head>
+  <body class="screen">
+    <div class="snow"></div>
+    <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <main>
+      <!-- Koppelen: code uit de VR-bril invullen (op /screen) -->
+      <section id="pair" hidden>
+        <div class="logo"><span class="home">Home</span><span class="alone">Alone</span><span class="vr">GROOT SCHERM</span></div>
+        <h1>Koppel het grote scherm</h1>
+        <p class="big-text">Typ de code die in de VR-bril staat.</p>
+        <div id="pair-code"></div>
+        <p class="error" id="pair-error"></p>
+      </section>
+
+      <!-- Onbekende of afgelopen code -->
+      <section id="problem" hidden>
+        <h1 id="problem-title"></h1>
+        <p class="big-text" id="problem-text"></p>
+        <p class="big-text"><a href="/screen">Een nieuwe code invullen</a></p>
+      </section>
+
+      <!-- Wachtkamer: publiek joint, speler doet de tutorial -->
+      <section id="lobby" hidden>
+        <div class="qr-card"><img id="lobby-qr" alt="QR-code naar de stempagina" /></div>
+        <div class="join-info">
+          <div class="logo" style="text-align: left"><span class="home">Home</span><span class="alone">Alone</span></div>
+          <p class="step">Scan de QR-code of ga naar</p>
+          <p class="url" id="lobby-host"></p>
+          <p class="step">en typ de code</p>
+          <p class="code-digits" id="lobby-code"></p>
+          <p class="viewers"><strong id="lobby-viewers">0</strong> <span id="lobby-viewers-word">kijkers</span> verbonden</p>
+          <div class="countdown">
+            <p id="lobby-countdown">De speler maakt zich klaar...</p>
+            <div class="bar" id="lobby-bar-wrap" hidden><div id="lobby-bar"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tijdens het spel -->
+      <section id="game" hidden>
+        <div class="card player-view" id="main-view">
+          <!-- Spelerzicht komt in fase 5. Tot dan het titelbeeld. -->
+          <div id="view-title">
+            <div class="logo"><span class="home">Home</span><span class="alone">Alone</span><span class="vr">VR</span></div>
+            <p class="placeholder">Hier komt straks het zicht van de speler.</p>
+          </div>
+          <div id="view-together" class="together-view" hidden>
+            <p class="message">Allemaal tegelijk drukken!</p>
+            <p class="label" id="together-label"></p>
+            <p class="count" id="together-count"></p>
+            <div class="bar"><div class="together-fill" id="together-fill"></div></div>
+          </div>
+          <div id="view-ending" class="ending-view" hidden>
+            <p class="muted big-text" id="ending-number"></p>
+            <h1 id="ending-name"></h1>
+            <ul id="ending-choices"></ul>
+          </div>
+        </div>
+
+        <div class="side">
+          <div class="card vote-panel">
+            <p class="panel-title">Stemming</p>
+            <div id="vote-active" hidden>
+              <div class="bar"><div id="vote-bar"></div></div>
+              <p class="question" id="vote-question"></p>
+              <p class="message" id="vote-message" hidden></p>
+              <div class="tally" id="vote-tally"></div>
+              <p class="muted" id="vote-total"></p>
+            </div>
+            <div id="vote-last" hidden>
+              <p class="muted" id="last-question"></p>
+              <h1 id="last-winner"></h1>
+              <div class="tally" id="last-tally"></div>
+            </div>
+            <p class="muted" id="vote-idle">Wacht op de eerste keuze...</p>
+          </div>
+          <div class="card minimap">
+            <p class="panel-title">Minimap</p>
+            <p>Komt later</p>
+          </div>
+        </div>
+
+        <div class="card footer">
+          <p class="viewers"><strong id="game-viewers">0</strong> <span id="game-viewers-word">kijkers</span> verbonden</p>
+          <div class="join-small">
+            <span>Doe mee op <span id="game-host"></span> met code</span>
+            <strong id="game-code"></strong>
+            <img id="game-qr" alt="" />
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="status" id="status" hidden>Verbinden...</div>
+    <button class="fullscreen-btn" id="fullscreen">Volledig scherm</button>
+
+    <script src="/js/lib/signalr.min.js"></script>
+    <script src="/js/common.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const sections = ["pair", "problem", "lobby", "game"];
+      const code = codeFromPath();
+      const host = location.host;
+
+      let state = null;
+      let lobbyEndsAt = null; // lokale tijd waarop de wachttijd (60 s) om is
+      let lobbyTotal = 0; // totale wachttijd in ms, voor de balk
+      let voteEndsAt = 0;
+      let finished = false;
+
+      function show(name) {
+        for (const s of sections) $(s).hidden = s !== name;
+      }
+
+      function showProblem(title, text) {
+        $("problem-title").textContent = title;
+        $("problem-text").textContent = text;
+        show("problem");
+      }
+
+      // Het scherm niet laten uitgaan (projectorlaptop).
+      async function keepAwake() {
+        try {
+          await navigator.wakeLock.request("screen");
+        } catch {}
+      }
+      document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && keepAwake());
+
+      $("fullscreen").onclick = () => document.documentElement.requestFullscreen().catch(() => {});
+      document.addEventListener("fullscreenchange", () => ($("fullscreen").hidden = !!document.fullscreenElement));
+
+      if (!code) {
+        // ---------- Koppelen ----------
+        show("pair");
+        const input = codeInput($("pair-code"), async (c) => {
+          input.setDisabled(true);
+          $("pair-error").textContent = "";
+          const status = await checkCode(c);
+          if (status === "active") return location.assign(`/screen/${c}`);
+          $("pair-error").textContent = CODE_ERRORS[status] || CODE_ERRORS.unknown;
+          input.setDisabled(false);
+          input.clear();
+        });
+        input.focus();
+      } else {
+        // ---------- Gekoppeld ----------
+        $("status").hidden = false;
+        $("lobby-code").textContent = prettyCode(code);
+        $("game-code").textContent = prettyCode(code);
+        $("lobby-host").textContent = host;
+        $("game-host").textContent = host;
+        $("lobby-qr").src = `/api/qr/${code}.png`;
+        $("game-qr").src = `/api/qr/${code}.png`;
+        keepAwake();
+
+        const hub = startHub({
+          on: { State: render, SessionEnded: onEnded },
+          onStatus: (online) => setStatus($("status"), online, "Verbonden", "Verbinding kwijt, opnieuw proberen..."),
+          onConnected: join,
+        });
+
+        async function join() {
+          if (finished) return;
+          let result;
+          try {
+            result = await hub.invoke("JoinAsScreen", code);
+          } catch {
+            return;
+          }
+          if (result.ok) return;
+          finished = true;
+          hub.stop();
+          $("status").hidden = true;
+          if (result.error === "ended") showProblem("Afgelopen", "Deze sessie is afgelopen.");
+          else showProblem("Oei", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
+        }
+
+        function onEnded() {
+          finished = true;
+          hub.stop();
+          $("status").hidden = true;
+          // Het einde blijft staan. Was er geen einde, dan een melding.
+          if (!(state && state.ending)) showProblem("Afgelopen", "Deze sessie is afgelopen. Start de game opnieuw en vul de nieuwe code in.");
+        }
+      }
+
+      function plural(n, el) {
+        el.textContent = n === 1 ? "kijker" : "kijkers";
+      }
+
+      function render(s) {
+        state = s;
+        if (s.phase === "lobby") return renderLobby(s);
+        if (s.phase === "pairing") return; // kan niet: wij zijn het scherm dat koppelt
+        renderGame(s);
+      }
+
+      function renderLobby(s) {
+        $("lobby-viewers").textContent = s.viewers;
+        plural(s.viewers, $("lobby-viewers-word"));
+        lobbyEndsAt = s.lobbyRemaining == null ? null : Date.now() + s.lobbyRemaining * 1000;
+        if (s.lobbyRemaining != null) lobbyTotal = Math.max(lobbyTotal, s.lobbyRemaining * 1000);
+        tickLobby();
+        show("lobby");
+      }
+
+      function tickLobby() {
+        if (!state || state.phase !== "lobby") return;
+        $("lobby-bar-wrap").hidden = lobbyEndsAt == null;
+        if (lobbyEndsAt == null) {
+          $("lobby-countdown").textContent = "De speler maakt zich klaar...";
+          return;
+        }
+        const left = Math.max(0, lobbyEndsAt - Date.now());
+        $("lobby-bar").style.width = Math.min(100, (left / Math.max(1, lobbyTotal)) * 100) + "%";
+        $("lobby-countdown").textContent = left > 0 ? `Het spel begint over ${Math.ceil(left / 1000)} s` : "De speler is bijna klaar...";
+      }
+
+      function renderGame(s) {
+        $("game-viewers").textContent = s.viewers;
+        plural(s.viewers, $("game-viewers-word"));
+
+        // Grote vlak: einde > samen-actie > titelbeeld
+        $("view-ending").hidden = !s.ending;
+        $("view-together").hidden = !!s.ending || !s.together.active;
+        $("view-title").hidden = !!s.ending || s.together.active;
+        if (s.ending) renderEnding(s);
+        else if (s.together.active) renderTogether(s.together);
+
+        // Stemming rechts
+        $("vote-active").hidden = !s.active;
+        $("vote-last").hidden = s.active || !s.last;
+        $("vote-idle").hidden = s.active || !!s.last;
+        if (s.active) renderVote(s.vote);
+        else if (s.last) renderLast(s.last);
+
+        show("game");
+      }
+
+      function tally(el, options, winner) {
+        const total = options.reduce((n, o) => n + o.count, 0);
+        el.innerHTML = "";
+        for (const o of options) {
+          const row = document.createElement("div");
+          row.className = "tally-row" + (winner && o.id === winner ? " winner" : "");
+          const fill = document.createElement("div");
+          fill.className = "fill";
+          fill.style.width = total ? (o.count / total) * 100 + "%" : "0";
+          const label = document.createElement("span");
+          label.textContent = o.label;
+          const count = document.createElement("span");
+          count.textContent = o.count;
+          row.append(fill, label, count);
+          el.appendChild(row);
+        }
+      }
+
+      function renderVote(v) {
+        voteEndsAt = Date.now() + v.remaining * 1000;
+        $("vote-question").textContent = v.question;
+        $("vote-message").textContent = v.message;
+        $("vote-message").hidden = !v.message;
+        tally($("vote-tally"), v.options);
+        $("vote-total").textContent = `${v.total} van ${state.viewers} gestemd`;
+      }
+
+      function renderLast(r) {
+        $("last-question").textContent = r.question;
+        $("last-winner").textContent = r.winner ? winnerLabel(r) : "Gelijkspel: Kevin beslist";
+        tally($("last-tally"), r.options, r.winner);
+      }
+
+      function renderTogether(t) {
+        $("together-label").textContent = t.label;
+        $("together-count").textContent = `${t.presses} van ${t.needed} drukken...`;
+        $("together-fill").style.width = (t.presses / Math.max(1, t.needed)) * 100 + "%";
+      }
+
+      function renderEnding(s) {
+        $("ending-number").textContent = `Einde ${ENDING_ORDER.indexOf(s.ending) + 1} van 3`;
+        $("ending-name").textContent = ENDING_NAMES[s.ending];
+        $("ending-choices").innerHTML = "";
+        for (const r of s.history) {
+          const li = document.createElement("li");
+          li.textContent = r.winner ? winnerLabel(r) + (r.decidedBy === "kevin" ? " (Kevin koos)" : "") : "Kevin koos zelf";
+          $("ending-choices").appendChild(li);
+        }
+      }
+
+      setInterval(() => {
+        tickLobby();
+        if (state && state.active) {
+          const left = Math.max(0, voteEndsAt - Date.now());
+          $("vote-bar").style.width = (left / (state.vote.seconds * 1000)) * 100 + "%";
+        }
+      }, 100);
+    </script>
+  </body>
+</html>

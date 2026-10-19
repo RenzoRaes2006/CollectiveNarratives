@@ -6,7 +6,7 @@
     <title>Home Alone VR</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
     <div class="snow"></div>
@@ -19,11 +19,11 @@
       </div>
       <div class="status" id="status">Verbinden...</div>
 
-      <!-- Wachten tussen keuzes -->
+      <!-- Wachten tussen keuzes (en in de wachtkamer) -->
       <section id="wait" class="center">
         <h1>Jullie zijn het lot</h1>
         <p>Kevin hoort jullie niet. Praat dus gerust hardop.</p>
-        <p class="muted">Wacht op de volgende keuze...</p>
+        <p class="muted" id="wait-text">Wacht op de volgende keuze...</p>
       </section>
 
       <!-- Stemmen -->
@@ -57,14 +57,23 @@
           <p class="muted">Jullie keuzes</p>
           <ul id="ending-choices"></ul>
         </div>
-        <p class="muted">Wacht op een nieuwe ronde...</p>
+        <p class="muted">Bedankt om mee te spelen!</p>
+      </section>
+
+      <!-- Onbekende of afgelopen code -->
+      <section id="problem" class="center" hidden>
+        <h1 id="problem-title"></h1>
+        <p id="problem-text"></p>
+        <p><a href="/">Een andere code invullen</a></p>
       </section>
     </main>
 
-    <script src="common.js"></script>
+    <script src="/js/lib/signalr.min.js"></script>
+    <script src="/js/common.js"></script>
     <script>
       const $ = (id) => document.getElementById(id);
-      const sections = ["wait", "vote", "result", "together", "ending"];
+      const sections = ["wait", "vote", "result", "together", "ending", "problem"];
+      const code = codeFromPath();
 
       let state = null;
       let shownVoteId = 0;
@@ -73,14 +82,53 @@
       let togetherWasActive = false;
       let afterTogether = false; // samen-actie net afgelopen: toon die uitkomst i.p.v. de vorige stemming
       let pressed = false;
-
-      const socket = connect("phone", render, (online) => {
-        $("status").textContent = online ? "Verbonden" : "Verbinding kwijt, opnieuw proberen...";
-        $("status").classList.toggle("offline", !online);
-      });
+      let finished = false; // sessie voorbij: niet meer opnieuw verbinden
 
       function show(name) {
         for (const s of sections) $(s).hidden = s !== name;
+      }
+
+      function showProblem(title, text) {
+        $("problem-title").textContent = title;
+        $("problem-text").textContent = text;
+        $("status").hidden = true;
+        show("problem");
+      }
+
+      const hub = startHub({
+        on: { State: render, SessionEnded: onEnded },
+        onStatus: (online) => setStatus($("status"), online, "Verbonden", "Verbinding kwijt, opnieuw proberen..."),
+        onConnected: join,
+      });
+
+      async function join() {
+        if (finished) return;
+        let result;
+        try {
+          result = await hub.invoke("JoinAsPhone", code, getClientId());
+        } catch {
+          return; // verbinding weer weg: onreconnected probeert opnieuw
+        }
+        if (result.ok) return;
+        if (result.error === "notReady") {
+          $("wait-text").textContent = CODE_ERRORS.notReady;
+          setTimeout(join, 3000);
+        } else if (result.error === "ended") {
+          onEnded();
+        } else {
+          finished = true;
+          hub.stop();
+          showProblem("Oei", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
+        }
+      }
+
+      // Sessie voorbij: het einde blijft staan, anders een melding.
+      function onEnded() {
+        finished = true;
+        hub.stop();
+        $("status").hidden = true;
+        if (state && state.ending) return;
+        showProblem("Afgelopen", "Deze sessie is afgelopen. Bedankt om mee te spelen!");
       }
 
       function render(s) {
@@ -102,6 +150,7 @@
           $("result-text").textContent = s.last.winner ? winnerLabel(s.last) : "Gelijkspel: Kevin beslist";
           return show("result");
         }
+        $("wait-text").textContent = s.phase === "lobby" ? "Het spel begint zo..." : "Wacht op de volgende keuze...";
         show("wait");
       }
 
@@ -123,7 +172,7 @@
             b.dataset.id = o.id;
             b.onclick = () => {
               myChoice = o.id;
-              socket.send({ type: "choice", voteId: vote.voteId, option: o.id });
+              hub.send("CastVote", vote.voteId, o.id);
               updateSelection();
             };
             $("vote-options").appendChild(b);
@@ -153,7 +202,7 @@
       $("together-button").onclick = () => {
         pressed = true;
         $("together-button").classList.add("pressed");
-        socket.send({ type: "press" });
+        hub.send("Press");
         if (navigator.vibrate) navigator.vibrate(50);
       };
 

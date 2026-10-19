@@ -384,3 +384,63 @@ ul li::before {
     animation: none;
   }
 }
+
+/* ---------- Code invullen (6 vakjes) ---------- */
+
+.code-input {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.code-input .box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  flex: 1 1 0;
+  max-width: 56px;
+  aspect-ratio: 3 / 4;
+  border-radius: 12px;
+  border: 2px solid var(--panel-border);
+  background: rgba(255, 248, 235, 0.08);
+  color: var(--text);
+  font-family: var(--title-font);
+  font-size: 1.8rem;
+  text-align: center;
+}
+
+/* Na het derde vakje een beetje extra ruimte: 365 895 */
+.code-input .box:nth-child(3) {
+  margin-right: 10px;
+}
+
+.code-input .box.current {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(244, 197, 66, 0.3);
+}
+
+.code-input.disabled .box {
+  opacity: 0.5;
+}
+
+/* Het echte invoerveld ligt onzichtbaar over de vakjes. 16px: anders zoomt iOS in. */
+.code-input input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  font-size: 16px;
+  cursor: text;
+}
+
+.error {
+  color: #ff8a8a;
+  font-weight: 800;
+  min-height: 1.45em;
+}
+
+a {
+  color: var(--gold);
+}
