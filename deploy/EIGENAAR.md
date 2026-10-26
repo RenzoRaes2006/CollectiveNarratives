@@ -1,16 +1,29 @@
-# Voor de eigenaar: domein en GitHub
+# Voor de eigenaar: Cloudflare en GitHub
 
 Wat er buiten de VPS moet gebeuren. De VPS zelf: zie [README.md](README.md). Doe dit nadat de VPS-beheerder de gegevens uit stap 7 van die README heeft doorgestuurd.
 
-## 1. DNS bij name.com
+## 1. Cloudflare: domein en tunnel
 
-| Type | Host | Waarde |
-|---|---|---|
-| A | `@` | IPv4 van de VPS |
-| AAAA | `@` | IPv6 van de VPS (alleen als die er is) |
-| CNAME | `www` | `collective-narratives.app` |
+De website gaat naar buiten via een **Cloudflare Tunnel**: een uitgaande verbinding van de VPS naar Cloudflare. Cloudflare regelt https, en op de VPS staat geen enkele webpoort open.
 
-Controle: `nslookup collective-narratives.app` geeft het IP van de VPS. Zet ook **automatisch verlengen** van het domein aan.
+1. Maak een gratis account op [dash.cloudflare.com](https://dash.cloudflare.com) en kies **Add a domain** → `collective-narratives.app` → plan **Free**.
+2. Cloudflare toont twee nameservers (bv. `xxx.ns.cloudflare.com`). Zet die bij **name.com → My Domains → collective-narratives.app → Nameservers** in de plaats van de `name.com`-nameservers. Het kan tot een paar uur duren voor Cloudflare het domein op **Active** zet.
+3. **Zero Trust → Networks → Tunnels → Create a tunnel** → type **Cloudflared**, naam `collective-narratives`. Kopieer het **token** (de lange tekst na `--token` in het voorbeeldcommando). Installeer niets: cloudflared draait al als container.
+4. **Public hostnames** van de tunnel:
+
+   | Subdomain | Domain | Service |
+   |---|---|---|
+   | (leeg) | `collective-narratives.app` | `HTTP` · `web:8080` |
+   | `www` | `collective-narratives.app` | `HTTP` · `web:8080` |
+
+   Cloudflare maakt de DNS-records zelf aan.
+5. Het token komt op de VPS in `/opt/collective-narratives/.env` (als `deploy`):
+
+   ```bash
+   cd /opt/collective-narratives && umask 077 && echo 'TUNNEL_TOKEN=<token>' >> .env
+   ```
+
+Controle na de eerste deploy: `docker compose logs tunnel` toont `Registered tunnel connection`, en `https://collective-narratives.app/healthz` geeft `OK`. Zet bij name.com ook **automatisch verlengen** van het domein aan.
 
 ## 2. GitHub: environment en secrets
 

@@ -209,8 +209,7 @@ webapp/                                vervangt de Node-app
   Dockerfile
   UNITY-KOPPELING.md                   herschreven voor SignalR
 deploy/
-  docker-compose.yml                   web + caddy
-  Caddyfile
+  docker-compose.yml                   web + Cloudflare Tunnel
   README.md                            VPS-setup stap voor stap
 .github/workflows/web.yml              CI + CD
 ```
@@ -222,7 +221,7 @@ Start alleen bij wijzigingen in `webapp/**`, `deploy/**` of de workflow zelf.
 | Wanneer | Jobs |
 |---|---|
 | Pull request naar `main` | `checkout` (**`lfs: false`**, zodat we geen LFS-quotum verbruiken) → `dotnet test` → `docker build` (zonder push) |
-| Push/merge naar `main` | hetzelfde, plus: image pushen naar GHCR (`ghcr.io/renzoraes2006/collectivenarratives-web:<sha>` en `:latest`) → **deploy**: `docker-compose.yml` en `Caddyfile` via `scp` naar de VPS, dan via SSH `docker compose pull && docker compose up -d` → **smoke test**: `curl https://collective-narratives.app/healthz` |
+| Push/merge naar `main` | hetzelfde, plus: image pushen naar GHCR (`ghcr.io/renzoraes2006/collectivenarratives-web:<sha>` en `:latest`) → **deploy**: `docker-compose.yml` via `scp` naar de VPS, dan via SSH `docker compose pull && docker compose up -d` → **smoke test**: `curl https://collective-narratives.app/healthz` |
 | Handmatig (`workflow_dispatch`) | opnieuw deployen of terugrollen naar een oudere `<sha>` |
 
 - Deploy via een GitHub **environment** `production`. Daar kan een verplichte goedkeuring op, zodat er niets live gaat vlak voor een voorstelling.
@@ -236,26 +235,18 @@ Start alleen bij wijzigingen in `webapp/**`, `deploy/**` of de workflow zelf.
 
 1. **OS:** Ubuntu 24.04 LTS, updates erop, `unattended-upgrades` aan.
 2. **Gebruiker:** `deploy` (in de groep `docker`, geen root). SSH alleen met sleutels, root-login en wachtwoord-login uit. Eventueel `fail2ban`.
-3. **Firewall (`ufw`):** alleen 22, 80 en 443 open (later voor WebRTC ook 3478 + een UDP-range).
+3. **Firewall (`ufw`):** alleen 22 open. De website komt binnen via de Cloudflare Tunnel (uitgaande verbinding), dus 80 en 443 blijven dicht (later voor WebRTC wel 3478 + een UDP-range).
 4. **Docker Engine + compose-plugin** installeren.
-5. **Map:** `/opt/collective-narratives/` met `.env`.
-6. **DNS bij name.com:** `A @ → <IPv4 van de VPS>` (en `AAAA` als er IPv6 is), `CNAME www → collective-narratives.app`.
+5. **Map:** `/opt/collective-narratives/` met `.env` (`GAME_KEY`, `IMAGE_TAG`, `TUNNEL_TOKEN`).
+6. **DNS via Cloudflare:** het domein staat bij name.com geregistreerd, maar de nameservers wijzen naar Cloudflare. De tunnel maakt zelf de DNS-records aan.
 7. **Eerste deploy met de hand** (compose up), dan pas de pipeline aanzetten.
 
-### Caddy (reverse proxy + https)
+### Cloudflare Tunnel (https zonder open poorten)
 
-```
-collective-narratives.app {
-    encode gzip
-    reverse_proxy web:8080
-}
-www.collective-narratives.app {
-    redir https://collective-narratives.app{uri} permanent
-}
-```
-
-- Caddy haalt zelf een Let's Encrypt-certificaat en verlengt het. Poort 80 en 443 moeten open staan.
-- `.app` werkt **alleen via https** (HSTS-preload). Dat regelt Caddy.
+- De container `tunnel` (`cloudflared`) bouwt een uitgaande verbinding naar Cloudflare. Bezoekers gaan naar Cloudflare, Cloudflare stuurt het verzoek door de tunnel naar `http://web:8080`.
+- In het Cloudflare-dashboard: tunnel `collective-narratives`, public hostname `collective-narratives.app` → `http://web:8080` (en `www` naar hetzelfde). Het token van de tunnel staat als `TUNNEL_TOKEN` in de `.env` op de VPS.
+- Cloudflare regelt het https-certificaat. `.app` werkt **alleen via https** (HSTS-preload), dat is dus in orde.
+- Cloudflare stuurt het echte IP van de bezoeker mee in `X-Forwarded-For` (nodig voor de rate limit).
 - WebSockets (SignalR) werken zonder extra instellingen.
 
 ### Beheer
@@ -263,7 +254,7 @@ www.collective-narratives.app {
 - Logs: `docker compose logs -f web`.
 - Uptime: gratis monitor (UptimeRobot of Uptime Kuma) op `/healthz`.
 - Terugrollen: `IMAGE_TAG=<oude sha> docker compose up -d`, of de workflow handmatig starten met die sha.
-- Lokaal ontwikkelen: `dotnet run` (poort 5000) of `docker compose up` met een lokale Caddyfile.
+- Lokaal ontwikkelen: `dotnet run` (poort 5000) of `cd webapp && docker compose up --build`.
 
 ## Fasen en taken
 
@@ -275,7 +266,7 @@ Fase 1, 2 en 3 kunnen **nu al** (alles lokaal). Fase 4 zodra we op de VPS kunnen
 | **1. Server in ASP.NET Core** | Sessies + codes, hub, rate limit, QR, healthz, tests. `UNITY-KOPPELING.md` herschrijven. Node-versie weg. | web | `dotnet test` groen. Lokaal: sessie aanmaken, met 3 browsers stemmen, uitslag komt binnen. |
 | **2. Websitepagina's** | `/` (code invullen), `/poll/{code}` (huidige app op SignalR), `/screen` (code invullen) en `/screen/{code}` (wachtkamer met aftelling, stemming, samen-actie, einde) | web | De volledige game flow werkt met de hostpagina als "nep-game", inclusief koppelen. |
 | **3. Unity SessionClient** | `SessionClient.cs`, `ServerConfig`, `ApplicationConnection` aangepast. Codepaneel in de bril, tutorial-placeholder en 60 s-timer. UI-overlay in Unity enkel nog als debug. | Unity | In de Editor tegen de lokale server: code in beeld, koppelen via `/screen`, na 60 s start het spel. Zonder polling. |
-| **4. DevOps** | VPS-hardening, DNS, Docker/Caddy, workflow, secrets, branch-beveiliging | DevOps | Een merge naar `main` staat binnen ~5 min live. `https://collective-narratives.app/healthz` geeft OK. |
+| **4. DevOps** | VPS-hardening, DNS, Docker/Cloudflare Tunnel, workflow, secrets, branch-beveiliging | DevOps | Een merge naar `main` staat binnen ~5 min live. `https://collective-narratives.app/healthz` geeft OK. |
 | **5. Spelerzicht** | 5a (JPEG via SignalR), daarna eventueel 5b (WebRTC + coturn) | Unity + web | Het grote scherm toont het beeld van de Quest met < 1 s vertraging. |
 | **6. Minimap** | Later | — | — |
 

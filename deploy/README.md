@@ -2,7 +2,7 @@
 
 Voor wie de VPS beheert. Alles hieronder gebeurt **op de VPS zelf**, één keer. Daarna zet de pipeline van de repo de website automatisch live; op de VPS hoeft dan niets meer te gebeuren.
 
-Wat er straks draait: twee Docker-containers, `web` (de website) en `caddy` (https). Geen database.
+Wat er straks draait: twee Docker-containers, `web` (de website) en `tunnel` (Cloudflare Tunnel: maakt de site bereikbaar via https, zonder open poorten). Geen database.
 
 ## 1. Systeem
 
@@ -61,13 +61,10 @@ systemctl restart ssh
 
 ```bash
 ufw allow OpenSSH
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 443/udp
 ufw enable
 ```
 
-Poort 80 en 443 moeten open zijn: daarmee haalt Caddy het https-certificaat.
+Alleen SSH open. De website komt binnen via de Cloudflare Tunnel: die maakt zelf een uitgaande verbinding, dus poort 80 en 443 blijven dicht.
 
 ## 6. Map en geheime sleutel
 
@@ -79,7 +76,7 @@ sudo -u deploy sh -c "umask 077; printf 'GAME_KEY=%s\nIMAGE_TAG=latest\n' '$KEY'
 cat /opt/collective-narratives/.env
 ```
 
-`docker-compose.yml` en `Caddyfile` zet de pipeline zelf in deze map. `IMAGE_TAG` past de pipeline ook zelf aan.
+`docker-compose.yml` zet de pipeline zelf in deze map. `TUNNEL_TOKEN` komt er later bij (zie [EIGENAAR.md](EIGENAAR.md), stap 1). `IMAGE_TAG` past de pipeline ook zelf aan.
 
 ## 7. Doorgeven aan de eigenaar van de repo
 
@@ -103,4 +100,4 @@ Daarna is de VPS klaar. De eerste deploy start de eigenaar vanuit GitHub.
 | Terugrollen | in `.env` `IMAGE_TAG` op een oudere commit-sha zetten, dan `docker compose up -d` |
 | Herstarten | `docker compose restart web` (lopende sessies zijn dan weg: **niet tijdens een voorstelling**) |
 
-Niet doen: het volume `caddy_data` verwijderen (daar staan de certificaten).
+| Tunnel bekijken | `docker compose logs -f tunnel` (moet "Registered tunnel connection" tonen) |

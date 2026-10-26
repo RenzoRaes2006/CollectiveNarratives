@@ -28,8 +28,8 @@ public static class WebApp
         services.AddHostedService<SessionCleanupService>();
         services.AddSignalR(o => o.AddFilter<SessionExceptionFilter>());
 
-        // Achter Caddy: https en het echte IP van de bezoeker (voor JoinGuard) komen uit de X-Forwarded-headers.
-        // Alle proxies vertrouwen mag, want de container is alleen via Caddy bereikbaar (geen poort open naar buiten).
+        // Achter de Cloudflare Tunnel: https en het echte IP van de bezoeker (voor JoinGuard) komen uit de X-Forwarded-headers.
+        // Alle proxies vertrouwen mag, want de container is alleen via de tunnel bereikbaar (geen poort open naar buiten).
         services.Configure<ForwardedHeadersOptions>(o =>
         {
             o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;

@@ -111,8 +111,8 @@ jobs:
             StrictHostKeyChecking yes
           EOF
 
-      - name: Compose-bestand en Caddyfile kopiëren
-        run: scp deploy/docker-compose.yml deploy/Caddyfile "vps:$DIR/"
+      - name: Compose-bestand kopiëren
+        run: scp deploy/docker-compose.yml "vps:$DIR/"
 
       - name: Nieuwe versie starten
         run: |

@@ -9,7 +9,7 @@ RUN dotnet publish src/CollectiveNarratives.Web -c Release -o /app --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app .
-# Niet als root draaien. Poort 8080 is alleen bereikbaar voor Caddy (zie deploy/docker-compose.yml).
+# Niet als root draaien. Poort 8080 is alleen bereikbaar via de Cloudflare Tunnel (zie deploy/docker-compose.yml).
 USER $APP_UID
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
