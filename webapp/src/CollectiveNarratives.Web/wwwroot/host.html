@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Host – Alone at Christmas VR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      main {
+        max-width: 760px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .row button,
+      .row input {
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: #2a3550;
+        color: var(--text);
+        border: 0;
+        font: inherit;
+      }
+      .row button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .row input {
+        min-width: 0;
+        flex: 1;
+      }
+      .row input[type="number"] {
+        flex: 0 0 80px;
+      }
+      h2 {
+        font-size: 1rem;
+        margin: 0 0 8px;
+        color: var(--muted);
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        font-size: 0.85rem;
+        max-height: 260px;
+        overflow: auto;
+      }
+      .code {
+        font-family: var(--title-font);
+        font-size: 2.4rem;
+        color: var(--gold);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="snow"></div>
+    <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <main>
+      <div class="logo"><span class="home">Alone</span><span class="alone">at Christmas</span><span class="vr">NEP-GAME</span></div>
+      <p class="muted">Doet wat Unity doet, via dezelfde hub (zie UNITY-KOPPELING.md). Handig om de website te testen zonder headset.</p>
+
+      <div class="card">
+        <h2>1. Sessie starten (zoals de game)</h2>
+        <div class="row">
+          <input id="key" placeholder="Game key" title="Game key (lokaal: dev-game-key)" />
+          <button id="create">Nieuwe sessie</button>
+        </div>
+        <label class="row" style="margin-top: 8px">
+          <input type="checkbox" id="auto" checked style="flex: 0 0 auto" />
+          <span>Automatisch zoals de game: na het koppelen <code>StartTutorial(60)</code> en na 60 s <code>StartGame()</code></span>
+        </label>
+        <p class="status" id="status" style="text-align: left; margin-top: 8px">Niet verbonden</p>
+      </div>
+
+      <div class="card" id="session" hidden>
+        <h2>2. Koppelen</h2>
+        <p>Code in de "bril": <span class="code" id="code"></span></p>
+        <p>
+          Open <a id="screen-link" target="_blank">/screen</a> en typ de code. Telefoon:
+          <a id="phone-link" target="_blank"></a>
+        </p>
+        <p id="paired" class="muted">Nog geen groot scherm gekoppeld.</p>
+        <label class="row" style="margin-top: 8px">
+          <input type="checkbox" id="fake-view" style="flex: 0 0 auto" />
+          <span>Nep-spelerzicht sturen (bewegend testbeeld, 8 per seconde, zoals Unity)</span>
+        </label>
+        <div class="row" style="margin-top: 8px">
+          <button id="tutorial">StartTutorial(60)</button>
+          <button id="start-game">StartGame()</button>
+          <span class="muted" id="lobby-timer"></span>
+        </div>
+      </div>
+
+      <div class="card" id="controls" hidden>
+        <h2>3. Keuze starten</h2>
+        <div class="row" id="choice-buttons"></div>
+        <div class="row" style="margin-top: 8px">
+          <input type="number" id="seconds" value="12" min="1" title="Seconden" />
+          <input id="message" placeholder="Extra regel (optioneel), bv. Ze zijn sneller dan verwacht." />
+          <button id="stop">Stop nu</button>
+        </div>
+        <div class="row" style="margin-top: 8px" id="decide-row" hidden>
+          <span>Gelijkspel, Kevin kiest:</span>
+          <span class="row" id="decide-buttons"></span>
+        </div>
+
+        <h2 style="margin-top: 16px">Samen-actie</h2>
+        <div class="row">
+          <input id="together-label" value="Laat de hond blaffen" />
+          <button id="together">Start (5 s)</button>
+        </div>
+
+        <h2 style="margin-top: 16px">Einde</h2>
+        <div class="row">
+          <button data-ending="held">Held van de straat</button>
+          <button data-ending="weg">Net op tijd weg</button>
+          <button data-ending="cadeau">Cadeau is weg</button>
+          <button id="end-session">EndSession()</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Events van de server (wat Unity binnenkrijgt)</h2>
+        <pre id="log">-</pre>
+      </div>
+    </main>
+
+    <script src="/js/lib/signalr.min.js"></script>
+    <script src="/js/common.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let hub = null;
+      let session = null;
+      let lobbyStartedAt = 0;
+      let tutorialStarted = false;
+      let gameStarted = false;
+      const LOBBY_SECONDS = 60;
+
+      try {
+        $("key").value = localStorage.getItem("cn-game-key") || "dev-game-key";
+      } catch {
+        $("key").value = "dev-game-key";
+      }
+
+      const lines = [];
+      function log(text) {
+        lines.unshift(`${new Date().toLocaleTimeString()}  ${text}`);
+        $("log").textContent = lines.slice(0, 80).join("\n");
+      }
+
+      async function call(method, ...args) {
+        try {
+          const r = await hub.invoke(method, ...args);
+          log(`→ ${method}(${args.map((a) => JSON.stringify(a)).join(", ")})${r !== undefined && r !== null ? "  =  " + JSON.stringify(r) : ""}`);
+          return r;
+        } catch (e) {
+          log(`✗ ${method}: ${e.message}`);
+          alert(e.message);
+        }
+      }
+
+      $("create").onclick = async () => {
+        if (hub) await hub.stop();
+        session = null;
+        tutorialStarted = gameStarted = false;
+        try {
+          localStorage.setItem("cn-game-key", $("key").value);
+        } catch {}
+
+        hub = startHub({
+          accessToken: $("key").value,
+          on: {
+            ScreenPaired: (e) => {
+              log(`← ScreenPaired ${JSON.stringify(e)}`);
+              $("paired").textContent = `Groot scherm gekoppeld (${e.screens}).`;
+              if ($("auto").checked && !tutorialStarted) startTutorial();
+            },
+            ViewersChanged: (e) => log(`← ViewersChanged ${JSON.stringify(e)}`),
+            VoteTally: (v) => log(`← VoteTally ${v.options.map((o) => `${o.id}:${o.count}`).join(" ")}`),
+            VoteEnded: (r) => {
+              log(`← VoteEnded ${JSON.stringify(r)}`);
+              showDecide(r);
+            },
+            TogetherEnded: (r) => log(`← TogetherEnded ${JSON.stringify(r)}`),
+            SessionEnded: () => log("← SessionEnded"),
+          },
+          onStatus: (online) => setStatus($("status"), online, "Verbonden met de hub", "Niet verbonden"),
+          onConnected: async () => {
+            // Na een onderbreking: dezelfde sessie hervatten, zoals de game doet.
+            if (session) {
+              const ok = await call("ResumeSession", session.code, session.gameToken);
+              if (ok) return;
+            }
+            const r = await call("CreateSession");
+            if (!r) return;
+            session = r;
+            $("code").textContent = prettyCode(r.code);
+            $("screen-link").href = "/screen";
+            $("screen-link").textContent = location.origin + "/screen";
+            $("phone-link").href = r.joinUrl;
+            $("phone-link").textContent = r.joinUrl;
+            $("paired").textContent = "Nog geen groot scherm gekoppeld.";
+            $("session").hidden = false;
+            $("controls").hidden = false;
+          },
+        });
+      };
+
+      async function startTutorial() {
+        tutorialStarted = true;
+        lobbyStartedAt = Date.now();
+        await call("StartTutorial", LOBBY_SECONDS);
+      }
+
+      $("tutorial").onclick = startTutorial;
+      $("start-game").onclick = async () => {
+        gameStarted = true;
+        await call("StartGame");
+      };
+
+      // De game wacht tot de tutorial klaar is EN er minstens 60 s voorbij zijn. De nep-tutorial is meteen klaar.
+      setInterval(() => {
+        if (!tutorialStarted || gameStarted) return ($("lobby-timer").textContent = "");
+        const left = Math.ceil(LOBBY_SECONDS - (Date.now() - lobbyStartedAt) / 1000);
+        $("lobby-timer").textContent = left > 0 ? `nog ${left} s` : "";
+        if (left <= 0 && $("auto").checked) $("start-game").onclick();
+      }, 250);
+
+      fetch("/api/choices")
+        .then((r) => r.json())
+        .then((choices) => {
+          for (const c of choices) {
+            const b = document.createElement("button");
+            b.textContent = c.id;
+            b.title = c.question;
+            b.onclick = () => {
+              $("decide-row").hidden = true;
+              call("StartVote", c.id, null, null, Number($("seconds").value), $("message").value);
+            };
+            $("choice-buttons").appendChild(b);
+          }
+        });
+
+      function showDecide(r) {
+        $("decide-row").hidden = !!r.winner;
+        $("decide-buttons").innerHTML = "";
+        for (const o of r.options) {
+          const b = document.createElement("button");
+          b.textContent = o.label;
+          b.onclick = () => {
+            $("decide-row").hidden = true;
+            call("Decide", r.voteId, o.id);
+          };
+          $("decide-buttons").appendChild(b);
+        }
+      }
+
+      // Nep-spelerzicht: tekent een testbeeld en POST het als JPEG, net zoals PlayerViewStreamer in Unity.
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 360;
+      let sendingFrame = false;
+      setInterval(() => {
+        if (!$("fake-view").checked || !session || sendingFrame) return;
+        const g = canvas.getContext("2d");
+        const t = Date.now() / 1000;
+        g.fillStyle = "#13203a";
+        g.fillRect(0, 0, 640, 360);
+        g.fillStyle = "#f4c542";
+        g.beginPath();
+        g.arc(320 + Math.sin(t) * 220, 180 + Math.cos(t * 1.3) * 100, 40, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = "#fff8eb";
+        g.font = "bold 28px sans-serif";
+        g.fillText("Nep-spelerzicht " + new Date().toLocaleTimeString(), 24, 48);
+        sendingFrame = true;
+        canvas.toBlob(async (blob) => {
+          try {
+            await fetch(`/api/sessions/${session.code}/frame`, {
+              method: "POST",
+              headers: { "Content-Type": "image/jpeg", "X-Game-Token": session.gameToken },
+              body: blob,
+            });
+          } catch {}
+          sendingFrame = false;
+        }, "image/jpeg", 0.6);
+      }, 125);
+
+      $("stop").onclick = () => call("StopVote");
+      $("together").onclick = () => call("StartTogether", $("together-label").value, 5);
+      for (const b of document.querySelectorAll("[data-ending]")) b.onclick = () => call("SetEnding", b.dataset.ending);
+      $("end-session").onclick = async () => {
+        await call("EndSession");
+        session = null;
+        $("session").hidden = true;
+        $("controls").hidden = true;
+        await hub.stop();
+        hub = null;
+      };
+    </script>
+  </body>
+</html>

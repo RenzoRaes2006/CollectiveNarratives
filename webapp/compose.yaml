@@ -1,0 +1,11 @@
+# Lokaal draaien zonder .NET SDK: docker compose up --build  ->  http://localhost:5000
+# Game key is dan "dev-game-key". Telefoons op hetzelfde wifi: zet PUBLIC_URL op het wifi-adres van deze laptop,
+# bv. PUBLIC_URL=http://192.168.1.10:5000 docker compose up --build
+services:
+  web:
+    build: .
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:5000}

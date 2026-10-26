@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Controleert alleen of de netwerkscripts van Unity compileren zoals Unity ze compileert:
+       .NET Standard 2.1 en C# 9. Zo merken we het hier al als iemand iets gebruikt wat Unity niet kent. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\CN_VR\Assets\ApplicationConnection\Scripts\Net\*.cs" Link="Unity\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>
