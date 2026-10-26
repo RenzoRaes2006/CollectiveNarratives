@@ -1,0 +1,10 @@
+# Caddy haalt zelf een Let's Encrypt-certificaat en verlengt het (poort 80 en 443 moeten open staan).
+# WebSockets (SignalR) werken zonder extra instellingen.
+collective-narratives.app {
+	encode zstd gzip
+	reverse_proxy web:8080
+}
+
+www.collective-narratives.app {
+	redir https://collective-narratives.app{uri} permanent
+}

@@ -5,11 +5,13 @@ using UnityEngine;
 
 // Menu: Collective Narratives > Maak scene 'Application Connection'
 // (of zonder Unity-venster: zie BuildFromCommandLine)
-// Maakt Assets/Scenes/ApplicationConnection.unity met camera, licht, vloer, telefoon en de koppeling.
+// Maakt Assets/Scenes/ApplicationConnection.unity met camera, licht, vloer, telefoon en de koppeling,
+// plus Assets/ApplicationConnection/Resources/ServerConfig.asset als dat er nog niet is.
 // Zo hoeft niemand scene-bestanden met de hand te maken; daarna gewoon de scene + .meta committen.
 public static class ApplicationConnectionSceneBuilder
 {
     const string ScenePath = "Assets/Scenes/ApplicationConnection.unity";
+    const string ConfigPath = "Assets/ApplicationConnection/Resources/ServerConfig.asset";
 
     [MenuItem("Collective Narratives/Maak scene 'Application Connection'")]
     public static void Build()
@@ -18,23 +20,31 @@ public static class ApplicationConnectionSceneBuilder
         if (File.Exists(ScenePath) &&
             !EditorUtility.DisplayDialog("Scene bestaat al", ScenePath + " overschrijven?", "Overschrijven", "Annuleren"))
             return;
-        CreateScene();
-        AddToBuildSettings();
-        AllowHttp();
-        AssetDatabase.SaveAssets();
+        BuildFromCommandLine();
     }
 
     // Zonder vensters, voor de command line:
     // Unity -batchmode -quit -projectPath CN_VR -executeMethod ApplicationConnectionSceneBuilder.BuildFromCommandLine
     public static void BuildFromCommandLine()
     {
-        CreateScene();
+        var config = CreateConfig();
+        CreateScene(config);
         AddToBuildSettings();
-        AllowHttp();
         AssetDatabase.SaveAssets();
     }
 
-    static void CreateScene()
+    static ServerConfig CreateConfig()
+    {
+        var config = AssetDatabase.LoadAssetAtPath<ServerConfig>(ConfigPath);
+        if (config != null) return config;
+        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
+        config = ScriptableObject.CreateInstance<ServerConfig>();
+        AssetDatabase.CreateAsset(config, ConfigPath);
+        Debug.Log("[Application Connection] " + ConfigPath + " gemaakt.");
+        return config;
+    }
+
+    static void CreateScene(ServerConfig config)
     {
         var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
@@ -58,15 +68,18 @@ public static class ApplicationConnectionSceneBuilder
         var ringer = phone.AddComponent<PhoneRinger>();
 
         var connection = new GameObject("Application Connection");
-        var client = connection.AddComponent<VoteClient>();
+        var client = connection.AddComponent<SessionClient>();
+        client.config = config;
+        var tutorial = connection.AddComponent<Tutorial>();
         var flow = connection.AddComponent<ApplicationConnection>();
-        flow.voteClient = client;
+        flow.sessionClient = client;
         flow.phone = ringer;
+        flow.tutorial = tutorial;
 
         Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
         EditorSceneManager.SaveScene(scene, ScenePath);
         Selection.activeGameObject = connection;
-        Debug.Log("[Application Connection] Scene gemaakt: " + ScenePath + ". Zet het server-adres op 'Application Connection' > VoteClient > Server Url.");
+        Debug.Log("[Application Connection] Scene gemaakt: " + ScenePath + ". Server-adres en game key staan in " + ConfigPath + ".");
     }
 
     static void AddToBuildSettings()
@@ -75,17 +88,5 @@ public static class ApplicationConnectionSceneBuilder
         if (scenes.Exists(s => s.path == ScenePath)) return;
         scenes.Add(new EditorBuildSettingsScene(ScenePath, true));
         EditorBuildSettings.scenes = scenes.ToArray();
-    }
-
-    // Unity blokkeert standaard http://. De webapp draait op http, dus dit moet aan.
-    static void AllowHttp()
-    {
-#if UNITY_2022_1_OR_NEWER
-        if (PlayerSettings.insecureHttpOption != InsecureHttpOption.AlwaysAllowed)
-        {
-            PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
-            Debug.Log("[Application Connection] Allow downloads over HTTP staat nu op Always allowed (ProjectSettings.asset mee committen).");
-        }
-#endif
     }
 }

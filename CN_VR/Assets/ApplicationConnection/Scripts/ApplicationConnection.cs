@@ -1,51 +1,104 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
 #endif
 
-// Test-scene voor de koppeling webapp <-> Unity.
-// 1. Wachtkamer: QR-code, "x kijkers verbonden", knop Starten.
-// 2. De telefoon gaat en het publiek stemt (keuze "telefoon": opnemen / rinkelen).
-// 3. De uitslag komt binnen en de telefoon doet wat het publiek koos.
-// Het scherm-UI wordt in code gebouwd, zodat de scene zelf simpel blijft.
-// Het is een Screen Space-overlay: zichtbaar op het grote scherm, niet in de headset. Kevin ziet de zaal-info dus niet.
+// Test-scene voor de koppeling website <-> Unity. Nog geen verhaal, alleen de koppeling:
+// 1. Verbinden en een sessie maken: de code van 6 cijfers staat in de bril.
+// 2. Wachten tot het grote scherm de code invult op <site>/screen (ScreenPaired).
+// 3. Tutorial (nu leeg) en minstens 60 s wachten, zodat het publiek kan joinen. Dan StartGame.
+// 4. Teststemming: de telefoon gaat, het publiek stemt, de uitslag komt hier binnen.
+// In de bril: één paneel in de wereld dat je blik volgt (code, wachten, uitslag). Op de pc: een debug-overlay.
+// Het zicht van de speler gaat naar het grote scherm (PlayerViewStreamer). In de Quest zorgt XRRigSetup voor hoofdtracking.
+// Bediening:            bril (controllers)                          Editor (toetsen)
+//   zonder groot scherm  A/X, zichtbaar na 2 minuten op het codescherm   S
+//   Kevin beslist        naar de telefoon kijken + trigger = opnemen,    1 = opnemen, 2 = laten rinkelen
+//                        8 s niets doen = laten rinkelen
+//   opnieuw (nieuwe code) A/X op het uitslagscherm                       R
 public class ApplicationConnection : MonoBehaviour
 {
-    public VoteClient voteClient;
+    [FormerlySerializedAs("voteClient")] public SessionClient sessionClient;
     public PhoneRinger phone;
+    public Tutorial tutorial;
+    public PlayerViewStreamer playerView;
+    [Tooltip("Minimale wachttijd na het koppelen, zodat het publiek kan joinen (s)")]
+    public int lobbySeconds = 60;
     [Tooltip("Stemtijd in seconden (game flow: 12)")]
     public int voteSeconds = 12;
     [Tooltip("Hoe lang de telefoon na de stemming nog rinkelt bij 'laten rinkelen'")]
     public float keepRingingSeconds = 4f;
+    [Tooltip("Na zoveel seconden op het codescherm mag de speler kiezen om zonder groot scherm te spelen")]
+    public float offlineOptionAfter = 120f;
+    [Tooltip("Zo lang heeft Kevin om de telefoon op te nemen bij een gelijkspel; daarna laat hij hem rinkelen")]
+    public float kevinDecideSeconds = 8f;
+    [Tooltip("Afstand van het paneel in de bril (m)")]
+    public float panelDistance = 2.2f;
 
-    enum Phase { WaitingRoom, Voting, KevinDecides, Result }
+    enum Phase { Connecting, ShowCode, Tutorial, WaitingForAudience, Voting, KevinDecides, Result }
     Phase phase;
+    bool offline; // zonder groot scherm verder
+    float lobbyStart;
+    float codeShownAt;
+    float kevinDeadline;
+    string kevinChoice;
 
     Font font;
-    GameObject waitingPanel, votePanel, kevinPanel, resultPanel;
-    RawImage qrImage;
-    Text qrPlaceholder, joinUrlText, viewersText, serverText;
-    Text voteTitle, voteCounts, voteTimer;
-    Text resultTitle, resultDetail;
-    string kevinChoice;
+    GameObject vrPanel;
+    Text vrTitle, vrBig, vrSmall;
+    bool panelPlaced;
+    Text debugText;
+    GameObject kevinButtons;
+
+#if ENABLE_INPUT_SYSTEM
+    InputAction triggerAction; // trigger links of rechts
+    InputAction buttonAction; // A of X
+#endif
 
     void Awake()
     {
-        if (voteClient == null) voteClient = Find<VoteClient>();
+        if (Find<XRRigSetup>() == null) gameObject.AddComponent<XRRigSetup>(); // hoofdtracking in de Quest
+        if (sessionClient == null) sessionClient = Find<SessionClient>() ?? gameObject.AddComponent<SessionClient>();
         if (phone == null) phone = Find<PhoneRinger>();
+        if (tutorial == null) tutorial = Find<Tutorial>() ?? gameObject.AddComponent<Tutorial>();
+        if (playerView == null) playerView = Find<PlayerViewStreamer>() ?? gameObject.AddComponent<PlayerViewStreamer>();
+        playerView.sessionClient = sessionClient;
 #if UNITY_2022_2_OR_NEWER
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 #else
         font = Resources.GetBuiltinResource<Font>("Arial.ttf");
 #endif
-        BuildUi();
+        BuildVrPanel();
+        BuildDebugOverlay();
     }
 
-    void Start() => ShowWaitingRoom();
+    void OnEnable()
+    {
+#if ENABLE_INPUT_SYSTEM
+        triggerAction = new InputAction("Trigger", InputActionType.Button);
+        triggerAction.AddBinding("<XRController>{RightHand}/triggerPressed");
+        triggerAction.AddBinding("<XRController>{LeftHand}/triggerPressed");
+        buttonAction = new InputAction("A of X", InputActionType.Button);
+        buttonAction.AddBinding("<XRController>{RightHand}/primaryButton");
+        buttonAction.AddBinding("<XRController>{LeftHand}/primaryButton");
+        triggerAction.Enable();
+        buttonAction.Enable();
+#endif
+    }
+
+    void OnDisable()
+    {
+#if ENABLE_INPUT_SYSTEM
+        triggerAction?.Dispose();
+        buttonAction?.Dispose();
+#endif
+    }
+
+    void Start() => StartCoroutine(RunSession());
 
     static T Find<T>() where T : Object
     {
@@ -56,154 +109,308 @@ public class ApplicationConnection : MonoBehaviour
 #endif
     }
 
-    // ---------- Verhaal ----------
+    // ---------- Verloop ----------
 
-    void ShowWaitingRoom()
+    IEnumerator RunSession()
     {
-        phase = Phase.WaitingRoom;
         if (phone != null) phone.ResetPhone();
-        Show(waitingPanel);
+        kevinButtons.SetActive(false);
+        offline = false;
+
+        // 1. Verbinden en sessie maken (blijft proberen tot het lukt, of zonder groot scherm verder).
+        phase = Phase.Connecting;
+        codeShownAt = Time.unscaledTime;
+        while (string.IsNullOrEmpty(sessionClient.Code) && !offline)
+        {
+            ShowVr("Verbinden...", "", "Even geduld, we zoeken de server." + OfflineHint());
+            yield return sessionClient.StartSession();
+            if (!string.IsNullOrEmpty(sessionClient.Code)) break;
+            ShowVr("Geen verbinding", "", "Server niet bereikbaar. Opnieuw proberen..." + OfflineHint());
+            yield return WaitUnscaled(3f);
+        }
+
+        // 2. Code tonen tot het grote scherm gekoppeld is.
+        if (!offline)
+        {
+            phase = Phase.ShowCode;
+            codeShownAt = Time.unscaledTime;
+            string site = HostOf(sessionClient.ServerUrl);
+            while (!sessionClient.ScreenPaired && !sessionClient.SessionLost && !offline)
+            {
+                ShowVr("Koppel het grote scherm", PrettyCode(sessionClient.Code), $"Ga op de laptop naar {site}/screen\nen typ deze code." + OfflineHint());
+                yield return null;
+            }
+            if (sessionClient.SessionLost)
+            {
+                StartCoroutine(RunSession()); // sessie vervallen: nieuwe code
+                yield break;
+            }
+        }
+
+        // 3. Tutorial + wachtkamer: verder als de tutorial klaar is EN er minstens lobbySeconds voorbij zijn.
+        lobbyStart = Time.unscaledTime;
+        if (!offline) yield return sessionClient.StartTutorial(lobbySeconds);
+        phase = Phase.Tutorial;
+        ShowVr("Tutorial", "", "(komt later)");
+        tutorial.Begin();
+        yield return new WaitUntil(() => tutorial.IsDone);
+
+        phase = Phase.WaitingForAudience;
+        while (!offline && LobbyLeft() > 0)
+        {
+            ShowVr("Het publiek doet mee", $"{Mathf.CeilToInt(LobbyLeft())} s", "Het spel begint zo.");
+            yield return null;
+        }
+        if (!offline) yield return sessionClient.StartGame();
+
+        // 4. Teststemming.
+        yield return PhoneVote();
     }
 
-    void OnStartPressed()
-    {
-        if (phase != Phase.WaitingRoom) return;
-        StartCoroutine(PhoneChapter());
-    }
+    float LobbyLeft() => lobbySeconds - (Time.unscaledTime - lobbyStart);
 
-    IEnumerator PhoneChapter()
+    bool OfflineOptionVisible => (phase == Phase.Connecting || phase == Phase.ShowCode) && Time.unscaledTime - codeShownAt >= offlineOptionAfter;
+
+    string OfflineHint() => OfflineOptionVisible ? "\n\nGeen groot scherm? Druk op A om zonder te spelen." : "";
+
+    IEnumerator PhoneVote()
     {
         phase = Phase.Voting;
-        Show(votePanel);
-        voteTitle.text = "De telefoon gaat...";
-        voteCounts.text = "";
-        voteTimer.text = "";
-
-        yield return voteClient.ResetRound(); // nieuwe speelronde: oude stemmen weg
-        if (phone != null) phone.Ring();      // dit is de trigger: Kevin hoort de telefoon, het publiek krijgt de vraag
+        HideVr(); // de speler hoort de telefoon, het publiek stemt
+        if (phone != null) phone.Ring();
 
         VoteResult result = null;
-        yield return voteClient.RunVote("telefoon", voteSeconds, r => result = r);
+        if (!offline) yield return sessionClient.RunVote("telefoon", voteSeconds, r => result = r);
 
         string choice = result != null ? result.winner : "";
-        string decidedBy = "publiek";
         if (string.IsNullOrEmpty(choice))
         {
-            // Gelijkspel, niemand stemde of server weg: Kevin beslist.
+            // Gelijkspel, niemand stemde of zonder server: Kevin beslist.
             phase = Phase.KevinDecides;
             kevinChoice = null;
-            Show(kevinPanel);
-            yield return new WaitUntil(() => kevinChoice != null);
+            kevinDeadline = Time.unscaledTime + kevinDecideSeconds;
+            kevinButtons.SetActive(true);
+            while (kevinChoice == null)
+            {
+                float left = kevinDeadline - Time.unscaledTime;
+                if (left <= 0) kevinChoice = "rinkelen";
+                else ShowVr("Jij beslist!", $"{Mathf.CeilToInt(left)} s", "Kijk naar de telefoon en druk op de trigger om op te nemen.\nNiets doen = laten rinkelen.");
+                yield return null;
+            }
+            kevinButtons.SetActive(false);
             choice = kevinChoice;
-            decidedBy = "kevin";
-            if (result != null) yield return voteClient.Decide(result.voteId, choice);
+            if (result != null) yield return sessionClient.Decide(result.voteId, choice);
         }
 
         phase = Phase.Result;
-        Show(resultPanel);
-        resultDetail.text = DescribeResult(result, decidedBy);
-
         if (choice == "opnemen")
         {
-            resultTitle.text = "OPNEMEN\nKevin neemt op: \"Hallo...?\"";
-            resultTitle.color = new Color(0.4f, 1f, 0.5f);
             if (phone != null) phone.PickUp();
+            ShowVr("Opnemen", "", "\"Hallo...?\"\n\nA = opnieuw");
         }
         else
         {
-            resultTitle.text = "LATEN RINKELEN\nDe telefoon blijft gaan...";
-            resultTitle.color = new Color(1f, 0.45f, 0.45f);
-            yield return new WaitForSeconds(keepRingingSeconds);
+            ShowVr("Laten rinkelen", "", "De telefoon blijft gaan...\n\nA = opnieuw");
+            yield return WaitUnscaled(keepRingingSeconds);
             if (phone != null) phone.StopRinging();
-            resultTitle.text = "LATEN RINKELEN\n...en stopt. Iemand weet nu dat Kevin niet opneemt.";
         }
     }
 
-    string DescribeResult(VoteResult r, string decidedBy)
+    // Sessie netjes afsluiten (code vervalt) en opnieuw beginnen met een nieuwe code.
+    IEnumerator Restart()
     {
-        if (r == null) return "Server niet bereikbaar: Kevin besliste zelf.";
-        string counts = "";
-        if (r.options != null)
-            foreach (var o in r.options) counts += $"{o.label}: {o.count}   ";
-        string who = decidedBy == "kevin" ? "Gelijkspel of geen stemmen: Kevin besliste." : "Gekozen door het publiek.";
-        return $"{who}\n{counts}({r.total} stemmen)";
+        yield return sessionClient.EndSession();
+        yield return RunSession();
     }
 
-    // ---------- Elke frame: live info tonen ----------
+    IEnumerator WaitUnscaled(float seconds)
+    {
+        float until = Time.unscaledTime + seconds;
+        while (Time.unscaledTime < until && !offline) yield return null;
+    }
+
+    // ---------- Elke frame ----------
 
     void Update()
     {
-        var s = voteClient != null ? voteClient.State : null;
-        bool online = voteClient != null && voteClient.Connected;
+        bool button = ButtonPressed();
+        if ((phase == Phase.Connecting || phase == Phase.ShowCode) && (KeyDown(Key.S) || (button && OfflineOptionVisible)))
+        {
+            // Zonder groot scherm spelen: Kevin beslist alles zelf.
+            offline = true;
+            sessionClient.GoOffline();
+        }
+        if (phase == Phase.KevinDecides)
+        {
+            if (KeyDown(Key.One) || (TriggerPressed() && LookingAtPhone())) kevinChoice = "opnemen";
+            if (KeyDown(Key.Two)) kevinChoice = "rinkelen";
+        }
+        if (phase == Phase.Result && (KeyDown(Key.R) || button))
+        {
+            StopAllCoroutines();
+            phase = Phase.Connecting;
+            StartCoroutine(Restart());
+        }
 
-        if (phase == Phase.WaitingRoom)
-        {
-            serverText.text = online ? $"Server verbonden ({voteClient.ActiveUrl})" : $"Server niet bereikbaar op {voteClient?.ActiveUrl}. Draait 'npm start' in webapp?";
-            serverText.color = online ? new Color(0.5f, 1f, 0.6f) : new Color(1f, 0.5f, 0.5f);
-            viewersText.text = s != null ? $"{s.viewers} kijker{(s.viewers == 1 ? "" : "s")} verbonden" : "0 kijkers verbonden";
-            if (voteClient != null && voteClient.QrTexture != null && qrImage.texture != voteClient.QrTexture)
-            {
-                qrImage.texture = voteClient.QrTexture;
-                qrImage.color = Color.white;
-                qrPlaceholder.text = "";
-            }
-            joinUrlText.text = voteClient != null ? voteClient.JoinUrl : "";
-            if (KeyDown(KeyCode.Space)) OnStartPressed();
-        }
-        else if (phase == Phase.Voting && s != null && s.active && s.vote != null && s.vote.id == "telefoon")
-        {
-            voteTitle.text = "De telefoon gaat! Het publiek stemt...";
-            voteTimer.text = $"Nog {s.vote.remaining} s";
-            string counts = "";
-            if (s.vote.options != null)
-                foreach (var o in s.vote.options) counts += $"{o.label}: {o.count}\n";
-            voteCounts.text = counts + $"({s.vote.total} van {s.viewers} gestemd)";
-        }
-        else if (phase == Phase.KevinDecides)
-        {
-            // Placeholder: later beslist Kevin door iets aan te raken in VR.
-            if (KeyDown(KeyCode.Alpha1)) kevinChoice = "opnemen";
-            if (KeyDown(KeyCode.Alpha2)) kevinChoice = "rinkelen";
-        }
+        UpdateDebugOverlay();
     }
 
-    static bool KeyDown(KeyCode key)
+    void LateUpdate() => FollowHead();
+
+    // Kijkt de speler (ongeveer) naar de telefoon?
+    bool LookingAtPhone()
+    {
+        var cam = Camera.main;
+        if (cam == null || phone == null) return true; // niets om naar te kijken: elke trigger telt
+        var toPhone = phone.transform.position - cam.transform.position;
+        return Vector3.Angle(cam.transform.forward, toPhone) < 20f;
+    }
+
+    void UpdateDebugOverlay()
+    {
+        var c = sessionClient;
+        string text =
+            $"Server: {c.ServerUrl} ({(offline ? "offline gekozen" : c.ConnectionStatus.ToString())})\n" +
+            $"Code: {(string.IsNullOrEmpty(c.Code) ? "-" : PrettyCode(c.Code))}   Groot scherm: {(c.ScreenPaired ? "gekoppeld" : "nog niet")}   Kijkers: {c.Viewers}\n" +
+            $"Fase: {phase}";
+        if (phase == Phase.WaitingForAudience) text += $" (nog {Mathf.CeilToInt(Mathf.Max(0, LobbyLeft()))} s)";
+        if (playerView != null)
+            text += $"\nSpelerzicht: {(playerView.IsStreaming ? $"aan ({playerView.framesPerSecond} per s)" : "uit")}"
+                    + (string.IsNullOrEmpty(playerView.LastError) ? "" : $" <color=#ff8080>{playerView.LastError}</color>");
+        var vote = c.LiveVote;
+        if (vote != null && vote.options != null)
+        {
+            text += $"\nStemming: {vote.question}";
+            foreach (var o in vote.options) text += $"\n   {o.label}: {o.count}";
+        }
+        if (!string.IsNullOrEmpty(c.LastError)) text += $"\n<color=#ff8080>{c.LastError}</color>";
+        if (phase == Phase.Connecting || phase == Phase.ShowCode) text += "\n[S] zonder groot scherm spelen";
+        debugText.text = text;
+    }
+
+    // ---------- Invoer ----------
+
+    bool TriggerPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        return triggerAction != null && triggerAction.WasPressedThisFrame();
+#else
+        return false;
+#endif
+    }
+
+    bool ButtonPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        return buttonAction != null && buttonAction.WasPressedThisFrame();
+#else
+        return false;
+#endif
+    }
+
+    enum Key { S, R, One, Two }
+
+    static bool KeyDown(Key key)
     {
 #if ENABLE_INPUT_SYSTEM
         var kb = Keyboard.current;
         if (kb == null) return false;
         switch (key)
         {
-            case KeyCode.Space: return kb.spaceKey.wasPressedThisFrame;
-            case KeyCode.Alpha1: return kb.digit1Key.wasPressedThisFrame;
-            case KeyCode.Alpha2: return kb.digit2Key.wasPressedThisFrame;
+            case Key.S: return kb.sKey.wasPressedThisFrame;
+            case Key.R: return kb.rKey.wasPressedThisFrame;
+            case Key.One: return kb.digit1Key.wasPressedThisFrame;
+            case Key.Two: return kb.digit2Key.wasPressedThisFrame;
             default: return false;
         }
 #else
-        return Input.GetKeyDown(key);
+        switch (key)
+        {
+            case Key.S: return Input.GetKeyDown(KeyCode.S);
+            case Key.R: return Input.GetKeyDown(KeyCode.R);
+            case Key.One: return Input.GetKeyDown(KeyCode.Alpha1);
+            case Key.Two: return Input.GetKeyDown(KeyCode.Alpha2);
+            default: return false;
+        }
 #endif
     }
 
-    // ---------- UI bouwen ----------
+    static string PrettyCode(string code) => code.Length == 6 ? code.Substring(0, 3) + " " + code.Substring(3) : code;
 
-    void Show(GameObject panel)
+    static string HostOf(string url) => System.Uri.TryCreate(url, System.UriKind.Absolute, out var uri) ? uri.Authority : url;
+
+    // ---------- Paneel in de bril ----------
+
+    void ShowVr(string title, string big, string small)
     {
-        waitingPanel.SetActive(panel == waitingPanel);
-        votePanel.SetActive(panel == votePanel);
-        kevinPanel.SetActive(panel == kevinPanel);
-        resultPanel.SetActive(panel == resultPanel);
+        vrPanel.SetActive(true);
+        vrTitle.text = title;
+        vrBig.text = big;
+        vrSmall.text = small;
     }
 
-    void BuildUi()
+    void HideVr() => vrPanel.SetActive(false);
+
+    // Het paneel blijft vindbaar: kijkt de speler er ver naast, dan schuift het rustig mee naar voren.
+    // De eerste keer wordt het pas geplaatst als de hoofdtracking een geldige hoogte geeft.
+    void FollowHead()
     {
-        var canvasGo = new GameObject("Groot scherm (UI)", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        var cam = Camera.main;
+        if (cam == null || !vrPanel.activeSelf) return;
+        var head = cam.transform;
+        if (head.position.y < 0.5f && Time.timeSinceLevelLoad < 2f) return; // tracking nog niet klaar
+
+        var forward = Vector3.ProjectOnPlane(head.forward, Vector3.up);
+        if (forward.sqrMagnitude < 0.01f) return;
+        forward.Normalize();
+        var target = head.position + forward * panelDistance + Vector3.up * 0.15f;
+        var rt = vrPanel.transform;
+
+        if (!panelPlaced)
+        {
+            rt.SetPositionAndRotation(target, Quaternion.LookRotation(forward, Vector3.up));
+            panelPlaced = true;
+            return;
+        }
+        var toPanel = Vector3.ProjectOnPlane(rt.position - head.position, Vector3.up);
+        if (Vector3.Angle(forward, toPanel) > 40f || Mathf.Abs(toPanel.magnitude - panelDistance) > 1f)
+        {
+            float t = 1f - Mathf.Exp(-3f * Time.unscaledDeltaTime);
+            rt.position = Vector3.Lerp(rt.position, target, t);
+            rt.rotation = Quaternion.Slerp(rt.rotation, Quaternion.LookRotation(forward, Vector3.up), t);
+        }
+    }
+
+    // World-space canvas. 1600x900 pixels = ongeveer 1,9 x 1,1 m.
+    void BuildVrPanel()
+    {
+        vrPanel = new GameObject("Paneel in de bril", typeof(Canvas), typeof(CanvasScaler));
+        vrPanel.transform.SetParent(transform, false);
+        var canvas = vrPanel.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        vrPanel.GetComponent<CanvasScaler>().dynamicPixelsPerUnit = 4; // scherpere tekst
+        var rt = (RectTransform)vrPanel.transform;
+        rt.sizeDelta = new Vector2(1600, 900);
+        rt.localScale = Vector3.one * 0.0012f;
+
+        Box(vrPanel.transform, "Achtergrond", new Color(0.05f, 0.07f, 0.12f, 0.88f), Vector2.zero, new Vector2(1600, 900));
+        vrTitle = Label(vrPanel.transform, "", 80, new Vector2(0, 300), new Vector2(1500, 120));
+        vrTitle.color = new Color(0.96f, 0.77f, 0.26f); // goud, zoals de website
+        vrBig = Label(vrPanel.transform, "", 230, new Vector2(0, 60), new Vector2(1550, 300));
+        vrSmall = Label(vrPanel.transform, "", 56, new Vector2(0, -260), new Vector2(1500, 300));
+    }
+
+    // ---------- Debug-overlay op de pc ----------
+
+    void BuildDebugOverlay()
+    {
+        var canvasGo = new GameObject("Debug (pc)", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasGo.transform.SetParent(transform, false);
         canvasGo.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
         var scaler = canvasGo.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
         scaler.matchWidthOrHeight = 0.5f;
-        var root = canvasGo.transform;
 
         if (Find<EventSystem>() == null)
         {
@@ -215,57 +422,29 @@ public class ApplicationConnection : MonoBehaviour
 #endif
         }
 
-        // Wachtkamer
-        waitingPanel = Panel(root, "Wachtkamer");
-        Label(waitingPanel.transform, "Home Alone VR", 72, new Vector2(0, 420), new Vector2(1600, 100));
-        Label(waitingPanel.transform, "Scan de QR-code en doe mee", 40, new Vector2(0, 340), new Vector2(1600, 60));
-        var qrBg = Box(waitingPanel.transform, "QR achtergrond", Color.white, new Vector2(0, 40), new Vector2(480, 480));
-        qrImage = new GameObject("QR", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-        qrImage.transform.SetParent(qrBg.transform, false);
-        Place(qrImage.rectTransform, Vector2.zero, new Vector2(440, 440));
-        qrImage.color = new Color(1, 1, 1, 0);
-        qrPlaceholder = Label(qrBg.transform, "QR-code laden...\n(start de webapp-server)", 28, Vector2.zero, new Vector2(440, 200));
-        qrPlaceholder.color = Color.black;
-        joinUrlText = Label(waitingPanel.transform, "", 30, new Vector2(0, -230), new Vector2(1600, 50));
-        viewersText = Label(waitingPanel.transform, "0 kijkers verbonden", 44, new Vector2(0, -300), new Vector2(1600, 60));
-        MakeButton(waitingPanel.transform, "Starten", new Vector2(0, -400), OnStartPressed);
-        serverText = Label(waitingPanel.transform, "", 24, new Vector2(0, -500), new Vector2(1800, 40));
+        var bg = Box(canvasGo.transform, "Debug achtergrond", new Color(0, 0, 0, 0.55f), Vector2.zero, new Vector2(900, 300));
+        var bgRt = bg.rectTransform;
+        bgRt.anchorMin = bgRt.anchorMax = bgRt.pivot = new Vector2(0, 1);
+        bgRt.anchoredPosition = new Vector2(20, -20);
+        debugText = Label(bg.transform, "", 24, Vector2.zero, new Vector2(860, 280));
+        debugText.alignment = TextAnchor.UpperLeft;
+        debugText.supportRichText = true;
 
-        // Stemming
-        votePanel = Panel(root, "Stemming", 0.35f);
-        voteTitle = Label(votePanel.transform, "", 64, new Vector2(0, 300), new Vector2(1800, 100));
-        voteTimer = Label(votePanel.transform, "", 56, new Vector2(0, 180), new Vector2(1000, 80));
-        voteCounts = Label(votePanel.transform, "", 48, new Vector2(0, -60), new Vector2(1400, 300));
-
-        // Kevin beslist (gelijkspel)
-        kevinPanel = Panel(root, "Kevin beslist", 0.35f);
-        Label(kevinPanel.transform, "Gelijkspel: Kevin beslist!", 64, new Vector2(0, 250), new Vector2(1800, 100));
-        Label(kevinPanel.transform, "(placeholder: klik of druk 1 / 2)", 32, new Vector2(0, 160), new Vector2(1800, 50));
-        MakeButton(kevinPanel.transform, "1  Opnemen", new Vector2(-300, -50), () => kevinChoice = "opnemen");
-        MakeButton(kevinPanel.transform, "2  Laten rinkelen", new Vector2(300, -50), () => kevinChoice = "rinkelen");
-
-        // Uitslag
-        resultPanel = Panel(root, "Uitslag", 0.35f);
-        Label(resultPanel.transform, "De keuze is binnen:", 40, new Vector2(0, 380), new Vector2(1600, 60));
-        resultTitle = Label(resultPanel.transform, "", 64, new Vector2(0, 240), new Vector2(1800, 200));
-        resultDetail = Label(resultPanel.transform, "", 36, new Vector2(0, 40), new Vector2(1800, 140));
-        MakeButton(resultPanel.transform, "Opnieuw", new Vector2(0, -400), () => { StopAllCoroutines(); ShowWaitingRoom(); });
+        kevinButtons = new GameObject("Kevin beslist", typeof(RectTransform));
+        kevinButtons.transform.SetParent(canvasGo.transform, false);
+        MakeButton(kevinButtons.transform, "1  Opnemen", new Vector2(-300, -380), () => kevinChoice = "opnemen");
+        MakeButton(kevinButtons.transform, "2  Laten rinkelen", new Vector2(300, -380), () => kevinChoice = "rinkelen");
+        kevinButtons.SetActive(false);
     }
 
-    GameObject Panel(Transform parent, string name, float alpha = 0.85f)
-    {
-        var go = Box(parent, name, new Color(0.05f, 0.07f, 0.12f, alpha), Vector2.zero, Vector2.zero).gameObject;
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-        rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
-        return go;
-    }
+    // ---------- UI-hulp ----------
 
     Image Box(Transform parent, string name, Color color, Vector2 pos, Vector2 size)
     {
         var img = new GameObject(name, typeof(RectTransform), typeof(Image)).GetComponent<Image>();
         img.transform.SetParent(parent, false);
         img.color = color;
+        img.raycastTarget = false;
         Place(img.rectTransform, pos, size);
         return img;
     }
@@ -288,7 +467,8 @@ public class ApplicationConnection : MonoBehaviour
 
     void MakeButton(Transform parent, string text, Vector2 pos, UnityEngine.Events.UnityAction onClick)
     {
-        var img = Box(parent, "Knop " + text, new Color(0.9f, 0.25f, 0.2f), pos, new Vector2(460, 110));
+        var img = Box(parent, "Knop " + text, new Color(0.78f, 0.06f, 0.18f), pos, new Vector2(460, 110));
+        img.raycastTarget = true;
         var btn = img.gameObject.AddComponent<Button>();
         btn.targetGraphic = img;
         btn.onClick.AddListener(onClick);
