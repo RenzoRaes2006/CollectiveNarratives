@@ -382,3 +382,99 @@ body.screen {
 .player-view .overlay[hidden] {
   display: none;
 }
+
+/* ---------- Wachttijd overslaan ---------- */
+
+.skip-btn {
+  margin-top: 1.5vh;
+  padding: 0.6vh 1vw;
+  border-radius: 0.6vw;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.skip-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+}
+
+.skip-btn[hidden] {
+  display: none;
+}
+
+/* ---------- Storing (game gecrasht, beeld weg of geen verbinding) ---------- */
+
+.trouble {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 4vw;
+  background: rgba(11, 19, 36, 0.94);
+}
+
+.trouble[hidden] {
+  display: none;
+}
+
+.trouble-card {
+  max-width: 60vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2.5vh;
+  text-align: center;
+}
+
+.trouble-icon {
+  font-size: 7vw;
+  line-height: 1;
+  color: var(--gold);
+  text-shadow: 0.3vw 0.3vw 0 var(--red-dark);
+}
+
+.trouble h1 {
+  font-size: 4vw;
+  color: var(--gold);
+}
+
+.trouble-wait span {
+  display: inline-block;
+  width: 1.2vw;
+  height: 1.2vw;
+  margin: 0 0.4vw;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: trouble-dot 1.2s infinite ease-in-out;
+}
+
+.trouble-wait span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.trouble-wait span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes trouble-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trouble-wait span {
+    animation: none;
+  }
+}

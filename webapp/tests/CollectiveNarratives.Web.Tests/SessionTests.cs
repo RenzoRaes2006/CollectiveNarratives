@@ -71,6 +71,41 @@ public class SessionTests
         Assert.Null(state.LobbyRemaining);
     }
 
+    [Fact]
+    public async Task SkipLobby_ends_the_countdown_and_tells_the_game_once()
+    {
+        var s = await Make.PairedSession(_time, _events);
+        await s.StartTutorial(60);
+
+        await s.SkipLobby();
+        await s.SkipLobby();
+
+        Assert.Equal(0, s.GetState().LobbyRemaining);
+        Assert.Single(_events.Game<LobbySkippedEvent>("LobbySkipped"));
+    }
+
+    [Fact]
+    public async Task SkipLobby_before_the_tutorial_still_skips_the_wait()
+    {
+        var s = await Make.PairedSession(_time, _events);
+
+        await s.SkipLobby();
+        await s.StartTutorial(60);
+
+        Assert.Equal(0, s.GetState().LobbyRemaining);
+    }
+
+    [Fact]
+    public async Task SkipLobby_does_nothing_once_the_game_runs()
+    {
+        var s = await Make.PairedSession(_time, _events);
+        await s.StartGame();
+
+        await s.SkipLobby();
+
+        Assert.Empty(_events.Game<LobbySkippedEvent>("LobbySkipped"));
+    }
+
     // ---------- Kijkers ----------
 
     [Fact]
@@ -278,8 +313,11 @@ public class SessionTests
         var s = Make.Session(_time, _events);
         await s.Leave("game-conn");
 
-        Assert.False(s.ResumeGame("new-conn", "wrong"));
-        Assert.True(s.ResumeGame("new-conn", "token"));
+        Assert.False(_events.LastState.GameConnected);
+
+        Assert.False(await s.ResumeGame("new-conn", "wrong"));
+        Assert.True(await s.ResumeGame("new-conn", "token"));
+        Assert.True(_events.LastState.GameConnected);
     }
 
     [Fact]

@@ -14,6 +14,7 @@ using UnityEngine;
 [Serializable] public class SessionInfo { public string code; public string gameToken; public string joinUrl; public string screenUrl; }
 [Serializable] public class ScreenPairedEvent { public int screens; }
 [Serializable] public class ViewersChangedEvent { public int viewers; }
+[Serializable] public class LobbySkippedEvent { public int viewers; }
 
 // Praat via SignalR met de website (webapp/). Vervangt de oude VoteClient (HTTP-polling).
 // - StartSession() maakt een sessie: Code staat dan klaar om in de bril te tonen.
@@ -36,6 +37,7 @@ public class SessionClient : MonoBehaviour
     public bool ScreenPaired { get; private set; }
     public int Screens { get; private set; }
     public int Viewers { get; private set; }
+    public bool LobbySkipped { get; private set; } // wachttijd overgeslagen (knop op het grote scherm)
     public Vote LiveVote { get; private set; } // tellingen tijdens een stemming, anders null
     public TogetherResult LastTogether { get; private set; }
     public bool SessionLost { get; private set; } // sessie vervallen of door de server beëindigd: opnieuw beginnen
@@ -85,13 +87,20 @@ public class SessionClient : MonoBehaviour
         yield return Call("CreateSession", r => raw = r);
         if (raw == null) yield break;
         Session = JsonUtility.FromJson<SessionInfo>(raw);
-        Log($"Sessie {Session.code} aangemaakt. Groot scherm: {ServerUrl}/screen");
+        Log($"Session {Session.code} created. Big screen: {ServerUrl}/screen");
     }
 
     // Wachtkamer begint: het grote scherm toont de aftelling.
     public IEnumerator StartTutorial(int seconds) => Call("StartTutorial", null, MiniJson.Number(seconds));
 
-    // Einde wachtkamer: tutorial klaar en minstens de wachttijd voorbij.
+    // Wachttijd overslaan vanuit de game. Het grote scherm stopt dan ook met aftellen.
+    public IEnumerator SkipLobby()
+    {
+        LobbySkipped = true;
+        return Call("SkipLobby", null);
+    }
+
+    // Einde wachtkamer: tutorial klaar en minstens de wachttijd voorbij (of overgeslagen).
     public IEnumerator StartGame() => Call("StartGame", null);
 
     public IEnumerator EndSession()
@@ -164,7 +173,7 @@ public class SessionClient : MonoBehaviour
         if (conn != _conn) yield break; // intussen vervangen
         if (task.IsFaulted || task.IsCanceled)
         {
-            Fail($"Server niet bereikbaar op {ServerUrl}: {ErrorText(task.Exception)}");
+            Fail($"Can't reach the server at {ServerUrl}: {ErrorText(task.Exception)}");
             ConnectionStatus = Status.Offline;
             _nextReconnect = Time.unscaledTime + 3f;
             yield break;
@@ -181,10 +190,10 @@ public class SessionClient : MonoBehaviour
         {
             string raw = null;
             yield return Call("ResumeSession", r => raw = r, MiniJson.Quote(Session.code), MiniJson.Quote(Session.gameToken));
-            if (raw == "true") Log($"Sessie {Session.code} hervat");
+            if (raw == "true") Log($"Session {Session.code} resumed");
             else if (raw != null)
             {
-                Fail($"Sessie {Session.code} is vervallen");
+                Fail($"Session {Session.code} has expired");
                 Session = null;
                 SessionLost = true;
             }
@@ -196,7 +205,7 @@ public class SessionClient : MonoBehaviour
     {
         if (conn != _conn) return;
         ConnectionStatus = Status.Offline;
-        if (error != null) Fail("Verbinding kwijt: " + error);
+        if (error != null) Fail("Connection lost: " + error);
         _nextReconnect = Time.unscaledTime + 2f;
     }
 
@@ -204,14 +213,14 @@ public class SessionClient : MonoBehaviour
     {
         if (_conn == null || !_conn.IsConnected)
         {
-            Fail(method + ": niet verbonden");
+            Fail(method + ": not connected");
             yield break;
         }
         var task = _conn.InvokeAsync(method, args);
         yield return new WaitUntil(() => task.IsCompleted);
         if (task.IsFaulted || task.IsCanceled)
         {
-            Fail($"{method} mislukt: {ErrorText(task.Exception)}");
+            Fail($"{method} failed: {ErrorText(task.Exception)}");
             yield break;
         }
         if (onResult != null) onResult(task.Result);
@@ -237,13 +246,16 @@ public class SessionClient : MonoBehaviour
                 _results[result.voteId] = result;
                 if (LiveVote != null && LiveVote.voteId == result.voteId) LiveVote = null;
                 break;
+            case "LobbySkipped":
+                LobbySkipped = true;
+                break;
             case "TogetherEnded":
                 LastTogether = JsonUtility.FromJson<TogetherResult>(arg);
                 break;
             case "SessionEnded":
                 if (!_endingOnPurpose && Session != null)
                 {
-                    Fail($"Sessie {Session.code} is door de server beëindigd");
+                    Fail($"Session {Session.code} was ended by the server");
                     Session = null;
                     SessionLost = true;
                 }
@@ -256,6 +268,7 @@ public class SessionClient : MonoBehaviour
         ScreenPaired = false;
         Screens = 0;
         Viewers = 0;
+        LobbySkipped = false;
         LiveVote = null;
         LastTogether = null;
         SessionLost = false;
@@ -273,5 +286,5 @@ public class SessionClient : MonoBehaviour
         Debug.LogWarning("[SessionClient] " + message);
     }
 
-    static string ErrorText(Exception e) => e == null ? "geannuleerd" : e.GetBaseException().Message;
+    static string ErrorText(Exception e) => e == null ? "cancelled" : e.GetBaseException().Message;
 }

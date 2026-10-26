@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="nl">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -17,13 +17,13 @@
         <span class="alone">at Christmas</span>
         <span class="vr">VR</span>
       </div>
-      <div class="status" id="status">Verbinden...</div>
+      <div class="status" id="status">Connecting...</div>
 
       <!-- Wachten tussen keuzes (en in de wachtkamer) -->
       <section id="wait" class="center">
-        <h1>Jullie zijn het lot</h1>
-        <p>Kevin hoort jullie niet. Praat dus gerust hardop.</p>
-        <p class="muted" id="wait-text">Wacht op de volgende keuze...</p>
+        <h1>You are fate</h1>
+        <p>Kevin can't hear you, so feel free to talk out loud.</p>
+        <p class="muted" id="wait-text">Waiting for the next choice...</p>
       </section>
 
       <!-- Stemmen -->
@@ -32,19 +32,19 @@
         <p class="question" id="vote-question"></p>
         <p class="message" id="vote-message" hidden></p>
         <div class="options" id="vote-options"></div>
-        <p class="muted" id="vote-hint">Tik op een keuze. Je mag nog wisselen.</p>
+        <p class="muted" id="vote-hint">Tap a choice. You can still change your mind.</p>
       </section>
 
       <!-- Uitslag -->
       <section id="result" class="center" hidden>
-        <p class="muted">Het lot heeft beslist</p>
+        <p class="muted">Fate has decided</p>
         <h1 id="result-text"></h1>
-        <p class="muted">Wacht op de volgende keuze...</p>
+        <p class="muted">Waiting for the next choice...</p>
       </section>
 
       <!-- Samen-actie -->
       <section id="together" class="center" hidden>
-        <p class="message">Allemaal tegelijk drukken!</p>
+        <p class="message">Everyone press together!</p>
         <button class="big-button" id="together-button"></button>
         <p id="together-count" class="muted"></p>
       </section>
@@ -54,17 +54,17 @@
         <p class="muted" id="ending-number"></p>
         <h1 id="ending-name"></h1>
         <div class="card">
-          <p class="muted">Jullie keuzes</p>
+          <p class="muted">Your choices</p>
           <ul id="ending-choices"></ul>
         </div>
-        <p class="muted">Bedankt om mee te spelen!</p>
+        <p class="muted">Thanks for playing!</p>
       </section>
 
       <!-- Onbekende of afgelopen code -->
       <section id="problem" class="center" hidden>
         <h1 id="problem-title"></h1>
         <p id="problem-text"></p>
-        <p><a href="/">Een andere code invullen</a></p>
+        <p><a href="/">Enter a different code</a></p>
       </section>
     </main>
 
@@ -97,7 +97,7 @@
 
       const hub = startHub({
         on: { State: render, SessionEnded: onEnded },
-        onStatus: (online) => setStatus($("status"), online, "Verbonden", "Verbinding kwijt, opnieuw proberen..."),
+        onStatus: (online) => setStatus($("status"), online, "Connected", "Connection lost, retrying..."),
         onConnected: join,
       });
 
@@ -118,7 +118,7 @@
         } else {
           finished = true;
           hub.stop();
-          showProblem("Oei", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
+          showProblem("Oops", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
         }
       }
 
@@ -128,7 +128,7 @@
         hub.stop();
         $("status").hidden = true;
         if (state && state.ending) return;
-        showProblem("Afgelopen", "Deze sessie is afgelopen. Bedankt om mee te spelen!");
+        showProblem("Session over", "This session has ended. Thanks for playing!");
       }
 
       function render(s) {
@@ -143,14 +143,14 @@
         if (togetherWasActive) afterTogether = true;
         togetherWasActive = false;
         if (afterTogether) {
-          $("result-text").textContent = s.lastTogether.success ? "Gelukt!" : "Net niet...";
+          $("result-text").textContent = s.lastTogether.success ? "You did it!" : "So close...";
           return show("result");
         }
         if (s.last) {
-          $("result-text").textContent = s.last.winner ? winnerLabel(s.last) : "Gelijkspel: Kevin beslist";
+          $("result-text").textContent = s.last.winner ? winnerLabel(s.last) : "Tie: Kevin decides";
           return show("result");
         }
-        $("wait-text").textContent = s.phase === "lobby" ? "Het spel begint zo..." : "Wacht op de volgende keuze...";
+        $("wait-text").textContent = s.phase === "lobby" ? "The game is about to start..." : "Waiting for the next choice...";
         show("wait");
       }
 
@@ -195,7 +195,7 @@
         }
         $("together-button").textContent = t.label;
         $("together-button").classList.toggle("pressed", pressed);
-        $("together-count").textContent = `${t.presses} van ${t.needed} drukken...`;
+        $("together-count").textContent = `${t.presses} of ${t.needed} pressed...`;
         show("together");
       }
 
@@ -207,12 +207,12 @@
       };
 
       function renderEnding(s) {
-        $("ending-number").textContent = `Einde ${ENDING_ORDER.indexOf(s.ending) + 1} van 3`;
+        $("ending-number").textContent = `Ending ${ENDING_ORDER.indexOf(s.ending) + 1} of 3`;
         $("ending-name").textContent = ENDING_NAMES[s.ending];
         $("ending-choices").innerHTML = "";
         for (const r of s.history) {
           const li = document.createElement("li");
-          li.textContent = r.winner ? winnerLabel(r) + (r.decidedBy === "kevin" ? " (Kevin koos)" : "") : "Kevin koos zelf";
+          li.textContent = r.winner ? winnerLabel(r) + (r.decidedBy === "kevin" ? " (Kevin decided)" : "") : "Kevin decided";
           $("ending-choices").appendChild(li);
         }
         show("ending");

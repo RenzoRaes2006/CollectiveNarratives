@@ -89,7 +89,7 @@ function codeInput(container, onComplete) {
   input.type = "text";
   input.inputMode = "numeric";
   input.autocomplete = "one-time-code";
-  input.setAttribute("aria-label", "Code van 6 cijfers");
+  input.setAttribute("aria-label", "6-digit code");
   container.appendChild(input);
 
   function render() {
@@ -136,12 +136,12 @@ async function checkCode(code) {
 }
 
 const CODE_ERRORS = {
-  unknown: "Deze code bestaat niet. Kijk nog eens goed.",
-  invalid: "Een code heeft 6 cijfers.",
-  ended: "Deze sessie is afgelopen.",
-  rateLimited: "Te veel foute codes. Wacht even en probeer het opnieuw.",
-  notReady: "Het spel is nog niet klaar. Even geduld...",
-  offline: "Geen verbinding met de server.",
+  unknown: "This code doesn't exist. Take another look.",
+  invalid: "A code has 6 digits.",
+  ended: "This session has ended.",
+  rateLimited: "Too many wrong codes. Wait a moment and try again.",
+  notReady: "The game isn't ready yet. Hang on...",
+  offline: "No connection to the server.",
 };
 
 // 365895 -> "365 895", leesbaarder op een groot scherm.
@@ -150,9 +150,9 @@ function prettyCode(code) {
 }
 
 const ENDING_NAMES = {
-  held: "De held van de straat",
-  weg: "Net op tijd weg",
-  cadeau: "Het cadeau is weg",
+  held: "Hero of the neighbourhood",
+  weg: "Out just in time",
+  cadeau: "The present is gone",
 };
 const ENDING_ORDER = ["held", "weg", "cadeau"];
 

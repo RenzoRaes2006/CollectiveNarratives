@@ -13,12 +13,12 @@ public static class ApplicationConnectionSceneBuilder
     const string ScenePath = "Assets/Scenes/ApplicationConnection.unity";
     const string ConfigPath = "Assets/ApplicationConnection/Resources/ServerConfig.asset";
 
-    [MenuItem("Collective Narratives/Maak scene 'Application Connection'")]
+    [MenuItem("Collective Narratives/Create scene 'Application Connection'")]
     public static void Build()
     {
         if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
         if (File.Exists(ScenePath) &&
-            !EditorUtility.DisplayDialog("Scene bestaat al", ScenePath + " overschrijven?", "Overschrijven", "Annuleren"))
+            !EditorUtility.DisplayDialog("Scene already exists", "Overwrite " + ScenePath + "?", "Overwrite", "Cancel"))
             return;
         BuildFromCommandLine();
     }

@@ -58,7 +58,8 @@ public sealed record SessionState(
     TogetherView Together,
     TogetherResult LastTogether,
     string Ending,
-    IReadOnlyList<VoteResult> History);
+    IReadOnlyList<VoteResult> History,
+    bool GameConnected); // false: game gecrasht of verbinding kwijt, het grote scherm toont een storingsmelding
 
 public sealed record CreateSessionResult(string Code, string GameToken, string JoinUrl, string ScreenUrl);
 
@@ -80,3 +81,5 @@ public static class JoinErrors
 public sealed record ScreenPairedEvent(int Screens);
 
 public sealed record ViewersChangedEvent(int Viewers);
+
+public sealed record LobbySkippedEvent(int Viewers);
