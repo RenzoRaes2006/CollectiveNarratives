@@ -80,7 +80,7 @@ public sealed class SessionHub(SessionStore store, JoinGuard guard, PublicUrl pu
     public async Task<bool> ResumeSession(string code, string gameToken)
     {
         RequireGameKey();
-        if (!store.TryGet(code ?? "", out var session) || !session.ResumeGame(Context.ConnectionId, gameToken)) return false;
+        if (!store.TryGet(code ?? "", out var session) || !await session.ResumeGame(Context.ConnectionId, gameToken)) return false;
         await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Game(code!));
         SetRole("game", code!);
         return true;
@@ -122,6 +122,12 @@ public sealed class SessionHub(SessionStore store, JoinGuard guard, PublicUrl pu
         }
         SetRole("screen", code);
         return result;
+    }
+
+    // Knop "Skip countdown" op het grote scherm (of A in de bril). Telefoons mogen dit niet.
+    public async Task SkipLobby()
+    {
+        if ((Current("screen") ?? Current("game")) is { } session) await session.SkipLobby();
     }
 
     // ---------- Telefoon ----------
@@ -178,10 +184,10 @@ public sealed class SessionHub(SessionStore store, JoinGuard guard, PublicUrl pu
 
     void RequireGameKey()
     {
-        if (!Context.Items.ContainsKey(IsGameKey)) throw new HubException("Geen geldige game key.");
+        if (!Context.Items.ContainsKey(IsGameKey)) throw new HubException("Invalid game key.");
     }
 
-    Session GameSession() => Current("game") ?? throw new HubException("Deze verbinding heeft geen actieve sessie. Eerst CreateSession of ResumeSession.");
+    Session GameSession() => Current("game") ?? throw new HubException("This connection has no active session. Call CreateSession or ResumeSession first.");
 
     Session? Current(string? role = null)
     {

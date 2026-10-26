@@ -12,11 +12,13 @@ using UnityEngine.InputSystem.UI;
 // 1. Verbinden en een sessie maken: de code van 6 cijfers staat in de bril.
 // 2. Wachten tot het grote scherm de code invult op <site>/screen (ScreenPaired).
 // 3. Tutorial (nu leeg) en minstens 60 s wachten, zodat het publiek kan joinen. Dan StartGame.
+//    De wachttijd kan overgeslagen worden met de knop "Skip countdown" op het grote scherm (LobbySkipped).
 // 4. Teststemming: de telefoon gaat, het publiek stemt, de uitslag komt hier binnen.
 // In de bril: één paneel in de wereld dat je blik volgt (code, wachten, uitslag). Op de pc: een debug-overlay.
 // Het zicht van de speler gaat naar het grote scherm (PlayerViewStreamer). In de Quest zorgt XRRigSetup voor hoofdtracking.
 // Bediening:            bril (controllers)                          Editor (toetsen)
 //   zonder groot scherm  A/X, zichtbaar na 2 minuten op het codescherm   S
+//   wachttijd overslaan  A/X tijdens het wachten (of knop op /screen)    K
 //   Kevin beslist        naar de telefoon kijken + trigger = opnemen,    1 = opnemen, 2 = laten rinkelen
 //                        8 s niets doen = laten rinkelen
 //   opnieuw (nieuwe code) A/X op het uitslagscherm                       R
@@ -122,10 +124,10 @@ public class ApplicationConnection : MonoBehaviour
         codeShownAt = Time.unscaledTime;
         while (string.IsNullOrEmpty(sessionClient.Code) && !offline)
         {
-            ShowVr("Verbinden...", "", "Even geduld, we zoeken de server." + OfflineHint());
+            ShowVr("Connecting...", "", "Hang on, looking for the server." + OfflineHint());
             yield return sessionClient.StartSession();
             if (!string.IsNullOrEmpty(sessionClient.Code)) break;
-            ShowVr("Geen verbinding", "", "Server niet bereikbaar. Opnieuw proberen..." + OfflineHint());
+            ShowVr("No connection", "", "Can't reach the server. Retrying..." + OfflineHint());
             yield return WaitUnscaled(3f);
         }
 
@@ -137,7 +139,7 @@ public class ApplicationConnection : MonoBehaviour
             string site = HostOf(sessionClient.ServerUrl);
             while (!sessionClient.ScreenPaired && !sessionClient.SessionLost && !offline)
             {
-                ShowVr("Koppel het grote scherm", PrettyCode(sessionClient.Code), $"Ga op de laptop naar {site}/screen\nen typ deze code." + OfflineHint());
+                ShowVr("Pair the big screen", PrettyCode(sessionClient.Code), $"On the laptop, go to {site}/screen\nand type this code." + OfflineHint());
                 yield return null;
             }
             if (sessionClient.SessionLost)
@@ -151,14 +153,14 @@ public class ApplicationConnection : MonoBehaviour
         lobbyStart = Time.unscaledTime;
         if (!offline) yield return sessionClient.StartTutorial(lobbySeconds);
         phase = Phase.Tutorial;
-        ShowVr("Tutorial", "", "(komt later)");
+        ShowVr("Tutorial", "", "(coming soon)");
         tutorial.Begin();
         yield return new WaitUntil(() => tutorial.IsDone);
 
         phase = Phase.WaitingForAudience;
-        while (!offline && LobbyLeft() > 0)
+        while (!offline && LobbyLeft() > 0 && !sessionClient.LobbySkipped)
         {
-            ShowVr("Het publiek doet mee", $"{Mathf.CeilToInt(LobbyLeft())} s", "Het spel begint zo.");
+            ShowVr("The audience is joining", $"{Mathf.CeilToInt(LobbyLeft())} s", "The game starts soon.\n\nA = skip the countdown");
             yield return null;
         }
         if (!offline) yield return sessionClient.StartGame();
@@ -171,7 +173,7 @@ public class ApplicationConnection : MonoBehaviour
 
     bool OfflineOptionVisible => (phase == Phase.Connecting || phase == Phase.ShowCode) && Time.unscaledTime - codeShownAt >= offlineOptionAfter;
 
-    string OfflineHint() => OfflineOptionVisible ? "\n\nGeen groot scherm? Druk op A om zonder te spelen." : "";
+    string OfflineHint() => OfflineOptionVisible ? "\n\nNo big screen? Press A to play without one." : "";
 
     IEnumerator PhoneVote()
     {
@@ -194,7 +196,7 @@ public class ApplicationConnection : MonoBehaviour
             {
                 float left = kevinDeadline - Time.unscaledTime;
                 if (left <= 0) kevinChoice = "rinkelen";
-                else ShowVr("Jij beslist!", $"{Mathf.CeilToInt(left)} s", "Kijk naar de telefoon en druk op de trigger om op te nemen.\nNiets doen = laten rinkelen.");
+                else ShowVr("You decide!", $"{Mathf.CeilToInt(left)} s", "Look at the phone and pull the trigger to answer.\nDo nothing = let it ring.");
                 yield return null;
             }
             kevinButtons.SetActive(false);
@@ -206,11 +208,11 @@ public class ApplicationConnection : MonoBehaviour
         if (choice == "opnemen")
         {
             if (phone != null) phone.PickUp();
-            ShowVr("Opnemen", "", "\"Hallo...?\"\n\nA = opnieuw");
+            ShowVr("Answer it", "", "\"Hello...?\"\n\nA = restart");
         }
         else
         {
-            ShowVr("Laten rinkelen", "", "De telefoon blijft gaan...\n\nA = opnieuw");
+            ShowVr("Let it ring", "", "The phone keeps ringing...\n\nA = restart");
             yield return WaitUnscaled(keepRingingSeconds);
             if (phone != null) phone.StopRinging();
         }
@@ -239,6 +241,11 @@ public class ApplicationConnection : MonoBehaviour
             // Zonder groot scherm spelen: Kevin beslist alles zelf.
             offline = true;
             sessionClient.GoOffline();
+        }
+        if (phase == Phase.WaitingForAudience && (KeyDown(Key.K) || button))
+        {
+            // Wachttijd overslaan, net als de knop op het grote scherm.
+            if (!offline && !sessionClient.LobbySkipped) StartCoroutine(sessionClient.SkipLobby());
         }
         if (phase == Phase.KevinDecides)
         {
@@ -270,21 +277,22 @@ public class ApplicationConnection : MonoBehaviour
     {
         var c = sessionClient;
         string text =
-            $"Server: {c.ServerUrl} ({(offline ? "offline gekozen" : c.ConnectionStatus.ToString())})\n" +
-            $"Code: {(string.IsNullOrEmpty(c.Code) ? "-" : PrettyCode(c.Code))}   Groot scherm: {(c.ScreenPaired ? "gekoppeld" : "nog niet")}   Kijkers: {c.Viewers}\n" +
-            $"Fase: {phase}";
-        if (phase == Phase.WaitingForAudience) text += $" (nog {Mathf.CeilToInt(Mathf.Max(0, LobbyLeft()))} s)";
+            $"Server: {c.ServerUrl} ({(offline ? "offline by choice" : c.ConnectionStatus.ToString())})\n" +
+            $"Code: {(string.IsNullOrEmpty(c.Code) ? "-" : PrettyCode(c.Code))}   Big screen: {(c.ScreenPaired ? "paired" : "not yet")}   Viewers: {c.Viewers}\n" +
+            $"Phase: {phase}";
+        if (phase == Phase.WaitingForAudience) text += c.LobbySkipped ? " (skipped)" : $" ({Mathf.CeilToInt(Mathf.Max(0, LobbyLeft()))} s left)";
         if (playerView != null)
-            text += $"\nSpelerzicht: {(playerView.IsStreaming ? $"aan ({playerView.framesPerSecond} per s)" : "uit")}"
+            text += $"\nPlayer view: {(playerView.IsStreaming ? $"on ({playerView.framesPerSecond} per s)" : "off")}"
                     + (string.IsNullOrEmpty(playerView.LastError) ? "" : $" <color=#ff8080>{playerView.LastError}</color>");
         var vote = c.LiveVote;
         if (vote != null && vote.options != null)
         {
-            text += $"\nStemming: {vote.question}";
+            text += $"\nVote: {vote.question}";
             foreach (var o in vote.options) text += $"\n   {o.label}: {o.count}";
         }
         if (!string.IsNullOrEmpty(c.LastError)) text += $"\n<color=#ff8080>{c.LastError}</color>";
-        if (phase == Phase.Connecting || phase == Phase.ShowCode) text += "\n[S] zonder groot scherm spelen";
+        if (phase == Phase.Connecting || phase == Phase.ShowCode) text += "\n[S] play without a big screen";
+        if (phase == Phase.WaitingForAudience) text += "\n[K] skip the countdown";
         debugText.text = text;
     }
 
@@ -308,7 +316,7 @@ public class ApplicationConnection : MonoBehaviour
 #endif
     }
 
-    enum Key { S, R, One, Two }
+    enum Key { S, R, K, One, Two }
 
     static bool KeyDown(Key key)
     {
@@ -319,6 +327,7 @@ public class ApplicationConnection : MonoBehaviour
         {
             case Key.S: return kb.sKey.wasPressedThisFrame;
             case Key.R: return kb.rKey.wasPressedThisFrame;
+            case Key.K: return kb.kKey.wasPressedThisFrame;
             case Key.One: return kb.digit1Key.wasPressedThisFrame;
             case Key.Two: return kb.digit2Key.wasPressedThisFrame;
             default: return false;
@@ -328,6 +337,7 @@ public class ApplicationConnection : MonoBehaviour
         {
             case Key.S: return Input.GetKeyDown(KeyCode.S);
             case Key.R: return Input.GetKeyDown(KeyCode.R);
+            case Key.K: return Input.GetKeyDown(KeyCode.K);
             case Key.One: return Input.GetKeyDown(KeyCode.Alpha1);
             case Key.Two: return Input.GetKeyDown(KeyCode.Alpha2);
             default: return false;
@@ -432,8 +442,8 @@ public class ApplicationConnection : MonoBehaviour
 
         kevinButtons = new GameObject("Kevin beslist", typeof(RectTransform));
         kevinButtons.transform.SetParent(canvasGo.transform, false);
-        MakeButton(kevinButtons.transform, "1  Opnemen", new Vector2(-300, -380), () => kevinChoice = "opnemen");
-        MakeButton(kevinButtons.transform, "2  Laten rinkelen", new Vector2(300, -380), () => kevinChoice = "rinkelen");
+        MakeButton(kevinButtons.transform, "1  Answer it", new Vector2(-300, -380), () => kevinChoice = "opnemen");
+        MakeButton(kevinButtons.transform, "2  Let it ring", new Vector2(300, -380), () => kevinChoice = "rinkelen");
         kevinButtons.SetActive(false);
     }
 

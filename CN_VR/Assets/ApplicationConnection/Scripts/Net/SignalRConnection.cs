@@ -59,8 +59,8 @@ namespace CollectiveNarratives.Net
             var done = await Task.WhenAny(_handshake.Task, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
             if (done != _handshake.Task)
             {
-                Close("Geen antwoord op de handshake");
-                throw new TimeoutException("SignalR: geen antwoord op de handshake");
+                Close("No response to the handshake");
+                throw new TimeoutException("SignalR: no response to the handshake");
             }
             await _handshake.Task.ConfigureAwait(false); // gooit de fout van de server door
             _ = Task.Run(PingLoop);
@@ -70,7 +70,7 @@ namespace CollectiveNarratives.Net
         // rawArgs zijn al JSON: gebruik MiniJson.Quote voor tekst, MiniJson.Number voor getallen, JsonUtility.ToJson voor objecten.
         public async Task<string> InvokeAsync(string method, params string[] rawArgs)
         {
-            if (!IsConnected) throw new SignalRException("Niet verbonden");
+            if (!IsConnected) throw new SignalRException("Not connected");
             string id = Interlocked.Increment(ref _invocationId).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pending[id] = tcs;
@@ -90,7 +90,7 @@ namespace CollectiveNarratives.Net
             if (done != tcs.Task)
             {
                 _pending.TryRemove(id, out _);
-                throw new TimeoutException("SignalR: geen antwoord op " + method);
+                throw new TimeoutException("SignalR: no response to " + method);
             }
             return await tcs.Task.ConfigureAwait(false);
         }
@@ -155,7 +155,7 @@ namespace CollectiveNarratives.Net
                     var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        Close("De server heeft de verbinding gesloten");
+                        Close("The server closed the connection");
                         return;
                     }
                     Interlocked.Exchange(ref _lastReceivedTicks, DateTime.UtcNow.Ticks);
@@ -187,7 +187,7 @@ namespace CollectiveNarratives.Net
                 catch (Exception e) when (!(e is OperationCanceledException))
                 {
                     // Eén kapot bericht (of een fout in een handler) mag de verbinding niet stoppen.
-                    System.Diagnostics.Debug.WriteLine("SignalR: bericht overgeslagen: " + e.Message);
+                    System.Diagnostics.Debug.WriteLine("SignalR: skipped message: " + e.Message);
                 }
             }
             int rest = length - start;

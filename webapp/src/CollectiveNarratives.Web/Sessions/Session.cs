@@ -39,6 +39,7 @@ public sealed class Session
 
     SessionPhase _phase = SessionPhase.Pairing;
     DateTimeOffset? _lobbyEndsAt;
+    bool _lobbySkipped;
 
     ActiveVote? _vote;
     VoteResult? _last;
@@ -108,16 +109,19 @@ public sealed class Session
     public bool IsGameToken(string token) =>
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(token ?? ""), Encoding.UTF8.GetBytes(GameToken));
 
-    public bool ResumeGame(string connectionId, string token)
+    public async Task<bool> ResumeGame(string connectionId, string token)
     {
         if (!IsGameToken(token)) return false;
+        var fx = new List<Func<Task>>();
         lock (_lock)
         {
             if (_phase == SessionPhase.Ended) return false;
             _gameConnection = connectionId;
             _gameLostAt = null;
+            AddState(fx); // het grote scherm haalt de storingsmelding weg
         }
         _log.LogInformation("Sessie {Code}: game is terug", Code);
+        await Run(fx);
         return true;
     }
 
@@ -186,6 +190,7 @@ public sealed class Session
                 _gameConnection = null;
                 _gameLostAt = _time.GetUtcNow();
                 _log.LogWarning("Sessie {Code}: verbinding met de game kwijt", Code);
+                AddState(fx); // het grote scherm toont een storingsmelding
             }
         }
         await Run(fx);
@@ -199,11 +204,28 @@ public sealed class Session
         lock (_lock)
         {
             ThrowIfEnded();
-            if (_phase == SessionPhase.Pairing) throw new SessionException("Er is nog geen groot scherm gekoppeld.");
+            if (_phase == SessionPhase.Pairing) throw new SessionException("No big screen has been paired yet.");
             if (_phase != SessionPhase.Lobby) return;
-            _lobbyEndsAt = _time.GetUtcNow().AddSeconds(Math.Clamp(seconds, 1, 600));
+            _lobbyEndsAt = _time.GetUtcNow().AddSeconds(_lobbySkipped ? 0 : Math.Clamp(seconds, 1, 600));
             AddState(fx);
         }
+        await Run(fx);
+    }
+
+    // Wachttijd overslaan (knop op het grote scherm). De game krijgt LobbySkipped en start zodra de tutorial klaar is.
+    public async Task SkipLobby()
+    {
+        var fx = new List<Func<Task>>();
+        lock (_lock)
+        {
+            if (_phase != SessionPhase.Lobby || _lobbySkipped) return;
+            _lobbySkipped = true;
+            if (_lobbyEndsAt is not null) _lobbyEndsAt = _time.GetUtcNow();
+            var e = new LobbySkippedEvent(ViewerCount());
+            fx.Add(() => _events.ToGame(Code, "LobbySkipped", e));
+            AddState(fx);
+        }
+        _log.LogInformation("Sessie {Code}: wachttijd overgeslagen", Code);
         await Run(fx);
     }
 
@@ -228,13 +250,13 @@ public sealed class Session
     {
         if (options is null || options.Count == 0)
         {
-            if (!Choices.All.TryGetValue(id ?? "", out var choice)) throw new SessionException($"Onbekende keuze: {id}");
+            if (!Choices.All.TryGetValue(id ?? "", out var choice)) throw new SessionException($"Unknown choice: {id}");
             options = choice.Options;
             if (string.IsNullOrWhiteSpace(question)) question = choice.Question;
         }
-        if (options.Count is < 2 or > 6) throw new SessionException("Een stemming heeft 2 tot 6 opties.");
+        if (options.Count is < 2 or > 6) throw new SessionException("A vote needs 2 to 6 options.");
         if (options.Any(o => string.IsNullOrWhiteSpace(o.Id)) || options.Select(o => o.Id).Distinct().Count() != options.Count)
-            throw new SessionException("Elke optie heeft een uniek id nodig.");
+            throw new SessionException("Every option needs a unique id.");
         seconds = seconds > 0 ? Math.Min(seconds, 300) : DefaultVoteSeconds;
 
         var fx = new List<Func<Task>>();
@@ -312,8 +334,8 @@ public sealed class Session
         VoteResult result;
         lock (_lock)
         {
-            result = _history.Find(r => r.VoteId == voteId) ?? throw new SessionException($"Onbekende voteId: {voteId}");
-            if (!result.Options.Any(o => o.Id == option)) throw new SessionException($"Onbekende optie: {option}");
+            result = _history.Find(r => r.VoteId == voteId) ?? throw new SessionException($"Unknown voteId: {voteId}");
+            if (!result.Options.Any(o => o.Id == option)) throw new SessionException($"Unknown option: {option}");
             result.Winner = option;
             result.DecidedBy = "kevin";
             AddState(fx);
@@ -366,7 +388,7 @@ public sealed class Session
             _together = new ActiveTogether
             {
                 Number = number,
-                Label = string.IsNullOrWhiteSpace(label) ? "Druk!" : label,
+                Label = string.IsNullOrWhiteSpace(label) ? "Press!" : label,
                 Seconds = seconds,
                 EndsAt = _time.GetUtcNow().AddSeconds(seconds),
                 Needed = Math.Max(1, ViewerCount()),
@@ -447,7 +469,7 @@ public sealed class Session
 
     public async Task SetEnding(string ending)
     {
-        if (!Choices.Endings.Contains(ending)) throw new SessionException($"Onbekend einde: {ending}");
+        if (!Choices.Endings.Contains(ending)) throw new SessionException($"Unknown ending: {ending}");
         var fx = new List<Func<Task>>();
         lock (_lock)
         {
@@ -481,7 +503,7 @@ public sealed class Session
 
     void ThrowIfEnded()
     {
-        if (_phase == SessionPhase.Ended) throw new SessionException("Deze sessie is afgelopen.");
+        if (_phase == SessionPhase.Ended) throw new SessionException("This session has ended.");
     }
 
     int ViewerCount() => _phones.Values.Distinct().Count();
@@ -548,6 +570,7 @@ public sealed class Session
             TogetherViewLocked(),
             _lastTogether,
             _ending,
-            _history.ToArray());
+            _history.ToArray(),
+            _gameConnection is not null);
     }
 }
