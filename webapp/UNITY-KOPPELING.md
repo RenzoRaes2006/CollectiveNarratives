@@ -31,6 +31,12 @@ Telefoons kunnen pas joinen na stap 2 (daarvoor staat de code alleen in de bril)
 
 **Game stopt:** stopt de speler de game (Play-modus uit in Unity, of de app sluit af), dan roept `SessionClient` meteen `EndSession()` aan. Het grote scherm toont "The game stopped" en de telefoons "Session over".
 
+**Game opnieuw gestart:** de game verbindt met een vaste toestel-id (`/hubs/session?device=<id>`, bewaard in PlayerPrefs). Maakt hetzelfde toestel een nieuwe sessie, dan beëindigt de server de vorige en stuurt `SessionMoved { code }`. Wie mee mag:
+
+- **Groot scherm:** altijd, tot 30 minuten na het einde. Het krijgt bij `JoinAsScreen` een geheime `key`; alleen daarmee geeft `GET /api/sessions/{oude code}/next?screenKey=...` de nieuwe code.
+- **Telefoons:** alleen als het spel midden in liep (nog geen einde) en de game binnen 5 minuten herstart, en alleen telefoons die echt in de oude sessie zaten (`?clientId=...`). Na een uitgespeeld spel is de volgende sessie een nieuwe ronde: telefoons moeten dan opnieuw scannen.
+- **Iemand met alleen een oude code:** krijgt niets. `/api/sessions/{code}` zegt alleen `ended`.
+
 **Storingen:** valt de verbinding met de game weg (crash, wifi weg), dan zet de server `gameConnected` op `false` en toont het grote scherm binnen ~15 s (pings elke 5 s) plus 3 s "Technical difficulties". Komt de game terug (`ResumeSession`), dan verdwijnt de melding. Komt ze niet terug, dan vervalt de sessie na 2 minuten en vraagt het scherm om de game te herstarten. Stopt het spelerzicht langer dan 6 s terwijl de game verbonden is (vastgelopen, bril afgezet), dan toont het scherm dezelfde melding. Heeft het scherm zelf 5 s geen verbinding met de server, dan toont het "Connection lost".
 
 Alle teksten voor spelers en publiek (website en game) zijn in het Engels. Id's (`telefoon`, `opnemen`, `held`, ...) blijven zoals ze zijn.

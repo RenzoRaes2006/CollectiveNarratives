@@ -25,10 +25,10 @@ function codeFromPath() {
 // opts.on: { State: fn, SessionEnded: fn, ... }
 // opts.onConnected(conn): na elke (her)verbinding, bv. om opnieuw te joinen.
 // opts.onStatus(online): voor het bolletje "Verbonden".
-// opts.accessToken: alleen voor de game (hostpagina).
+// opts.accessToken: alleen voor de game (hostpagina). opts.query: extra querystring, bv. "device=...".
 function startHub(opts) {
   const builder = new signalR.HubConnectionBuilder()
-    .withUrl("/hubs/session", opts.accessToken ? { accessTokenFactory: () => opts.accessToken } : {})
+    .withUrl("/hubs/session" + (opts.query ? "?" + opts.query : ""), opts.accessToken ? { accessTokenFactory: () => opts.accessToken } : {})
     .withAutomaticReconnect({ nextRetryDelayInMilliseconds: () => 2000 })
     .configureLogging(signalR.LogLevel.Warning);
   const conn = builder.build();
@@ -124,6 +124,21 @@ function codeInput(container, onComplete) {
       container.classList.toggle("disabled", d);
     },
   };
+}
+
+// Na het einde blijven kijken of dezelfde game opnieuw start; dan meteen naar die sessie.
+// proof: "screenKey=..." (groot scherm) of "clientId=..." (telefoon). Zonder bewijs geeft de server niets prijs.
+// minutes: zo lang blijven proberen.
+function followNextSession(code, page, proof, minutes) {
+  const until = Date.now() + minutes * 60 * 1000;
+  const check = async () => {
+    try {
+      const res = await fetch(`/api/sessions/${code}/next?${proof}`, { cache: "no-store" });
+      if (res.status === 200) return location.replace(`/${page}/${(await res.json()).next}`);
+    } catch {}
+    if (Date.now() < until) setTimeout(check, 2000);
+  };
+  check();
 }
 
 // Bestaat de code? Geeft "active", "ended", "unknown", "invalid" of "rateLimited".

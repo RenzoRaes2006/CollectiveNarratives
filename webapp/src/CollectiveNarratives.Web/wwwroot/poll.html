@@ -96,7 +96,8 @@
       }
 
       const hub = startHub({
-        on: { State: render, SessionEnded: onEnded },
+        // SessionMoved: de game crashte midden in het spel en startte opnieuw. Alleen wie meedeed krijgt dit.
+        on: { State: render, SessionEnded: onEnded, SessionMoved: (e) => location.replace(`/poll/${e.code}`) },
         onStatus: (online) => setStatus($("status"), online, "Connected", "Connection lost, retrying..."),
         onConnected: join,
       });
@@ -124,11 +125,14 @@
 
       // Sessie voorbij: het einde blijft staan, anders een melding.
       function onEnded() {
+        if (finished) return;
         finished = true;
         hub.stop();
         $("status").hidden = true;
-        if (state && state.ending) return;
-        showProblem("Session over", "This session has ended. Thanks for playing!");
+        if (state && state.ending) return; // spel uitgespeeld: een volgende ronde is voor nieuwe kijkers
+        // Gestopt midden in het spel: start de game snel opnieuw, dan doe je vanzelf weer mee.
+        followNextSession(code, "poll", "clientId=" + encodeURIComponent(getClientId()), 5);
+        showProblem("Session over", "The game has stopped. If it restarts in the next few minutes, you'll rejoin automatically.");
       }
 
       function render(s) {

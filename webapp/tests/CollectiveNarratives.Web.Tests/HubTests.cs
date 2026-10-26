@@ -102,6 +102,43 @@ public class HubTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Restarted_game_moves_the_screen_but_the_old_code_reveals_nothing()
+    {
+        async Task<HubConnection> Game() =>
+            await ConnectTo(_server.HubUrl + "?device=quest-a", TestServer.GameKey);
+
+        var game = await Game();
+        var old = await game.InvokeAsync<CreateSessionResult>("CreateSession");
+        await using var screen = await _server.Connect();
+        var moved = new TaskCompletionSource<SessionMovedEvent>();
+        screen.On<SessionMovedEvent>("SessionMoved", e => moved.TrySetResult(e));
+        var joined = await screen.InvokeAsync<JoinResult>("JoinAsScreen", old.Code);
+        Assert.False(string.IsNullOrEmpty(joined.Key));
+
+        await game.DisposeAsync(); // crash
+        await using var restarted = await Game();
+        var fresh = await restarted.InvokeAsync<CreateSessionResult>("CreateSession");
+
+        Assert.Equal(fresh.Code, (await moved.Task.Within()).Code);
+        // Publiek: alleen "ended", geen nieuwe code. Met de schermsleutel wel.
+        var status = await _server.Http.GetStringAsync($"/api/sessions/{old.Code}").ContinueWith(t => t.IsFaulted ? "" : t.Result);
+        Assert.DoesNotContain(fresh.Code, status);
+        Assert.Equal(HttpStatusCode.NoContent, (await _server.Http.GetAsync($"/api/sessions/{old.Code}/next?screenKey=raden")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _server.Http.GetAsync($"/api/sessions/{old.Code}/next?clientId=onbekend")).StatusCode);
+        var next = await _server.Http.GetFromJsonAsync<NextResponse>($"/api/sessions/{old.Code}/next?screenKey={Uri.EscapeDataString(joined.Key)}");
+        Assert.Equal(fresh.Code, next!.Next);
+    }
+
+    sealed record NextResponse(string Next);
+
+    static async Task<HubConnection> ConnectTo(string url, string accessToken)
+    {
+        var conn = new HubConnectionBuilder().WithUrl(url, o => o.AccessTokenProvider = () => Task.FromResult<string?>(accessToken)).Build();
+        await conn.StartAsync();
+        return conn;
+    }
+
+    [Fact]
     public async Task Ended_session_tells_everyone_and_refuses_new_joins()
     {
         await using var game = await _server.Connect(TestServer.GameKey);

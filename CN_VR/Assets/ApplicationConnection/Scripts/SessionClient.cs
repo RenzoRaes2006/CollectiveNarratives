@@ -44,6 +44,23 @@ public class SessionClient : MonoBehaviour
     public bool SessionLost { get; private set; } // sessie vervallen of door de server beëindigd: opnieuw beginnen
     public string ServerUrl => config.ActiveServerUrl;
 
+    // Vaste id van dit toestel (blijft bewaard). Start de game opnieuw, dan koppelt de server de nieuwe sessie aan de
+    // vorige: het grote scherm en de telefoons springen vanzelf naar de nieuwe code.
+    public static string DeviceId
+    {
+        get
+        {
+            string id = PlayerPrefs.GetString("cn-device-id", "");
+            if (string.IsNullOrEmpty(id))
+            {
+                id = Guid.NewGuid().ToString("N");
+                PlayerPrefs.SetString("cn-device-id", id);
+                PlayerPrefs.Save();
+            }
+            return id;
+        }
+    }
+
     SignalRConnection _conn;
     readonly ConcurrentQueue<Action> _mainThread = new ConcurrentQueue<Action>();
     readonly Dictionary<int, VoteResult> _results = new Dictionary<int, VoteResult>();
@@ -190,7 +207,7 @@ public class SessionClient : MonoBehaviour
         conn.Closed += error => _mainThread.Enqueue(() => OnClosed(conn, error));
         _conn = conn;
 
-        var task = conn.ConnectAsync(ServerUrl + "/hubs/session", config.ActiveGameKey);
+        var task = conn.ConnectAsync(ServerUrl + "/hubs/session?device=" + DeviceId, config.ActiveGameKey);
         yield return new WaitUntil(() => task.IsCompleted);
         if (conn != _conn) yield break; // intussen vervangen
         if (task.IsFaulted || task.IsCanceled)

@@ -21,6 +21,10 @@ public sealed class HubSessionEvents(IHubContext<SessionHub> hub) : ISessionEven
 
     public Task Ended(string code) =>
         hub.Clients.Groups(HubGroups.Game(code), HubGroups.Phones(code), HubGroups.Screens(code)).SendAsync("SessionEnded");
+
+    public Task Moved(string code, string nextCode, bool phonesToo) =>
+        hub.Clients.Groups(phonesToo ? [HubGroups.Screens(code), HubGroups.Phones(code)] : [HubGroups.Screens(code)])
+            .SendAsync("SessionMoved", new SessionMovedEvent(nextCode));
 }
 
 // Fouten uit een sessie (bv. "Onbekende keuze") gaan als nette foutmelding naar de aanroeper.
@@ -70,7 +74,10 @@ public sealed class SessionHub(SessionStore store, JoinGuard guard, PublicUrl pu
     {
         RequireGameKey();
         await LeaveCurrent();
-        var session = store.Create(publicUrl.For(Context.GetHttpContext()), Context.ConnectionId);
+        // Vaste id van het toestel (querystring "device"): start dezelfde game opnieuw, dan volgen scherm en telefoons mee.
+        string? device = Context.GetHttpContext()?.Request.Query["device"];
+        if (device is { Length: > 64 }) device = null;
+        var session = await store.Start(publicUrl.For(Context.GetHttpContext()), Context.ConnectionId, device);
         await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Game(session.Code));
         SetRole("game", session.Code);
         return new CreateSessionResult(session.Code, session.GameToken, session.JoinUrl, session.ScreenUrl);
