@@ -14,5 +14,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   serverUrl: https://collective-narratives.app
   editorServerUrl: http://localhost:5000
-  useEditorServerInEditor: 1
+  useEditorServerInEditor: 0
   gameKey: dev-game-key
