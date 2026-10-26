@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using CollectiveNarratives.Net;
 using UnityEngine;
 
@@ -62,6 +63,27 @@ public class SessionClient : MonoBehaviour
 
         if (_wantConnection && !_reconnecting && ConnectionStatus == Status.Offline && Time.unscaledTime >= _nextReconnect)
             StartCoroutine(Reconnect());
+    }
+
+    // Unity stopt (Play-modus uit, of de app sluit af): sessie meteen beëindigen. Zo stopt alles op het grote scherm
+    // en de telefoons, in plaats van door te tellen tot de server merkt dat de game weg is.
+    void OnApplicationQuit()
+    {
+        _wantConnection = false;
+        var conn = _conn;
+        if (conn == null || !conn.IsConnected || Session == null) return;
+        _endingOnPurpose = true;
+        try
+        {
+            // Kort blokkeren mag hier: de game sluit toch af. Op een achtergrond-thread, zodat er niets op de main thread wacht.
+            Task.Run(async () =>
+            {
+                try { await conn.InvokeAsync("EndSession", new string[0]); } catch { }
+                await conn.CloseAsync();
+            }).Wait(TimeSpan.FromSeconds(2));
+        }
+        catch { /* afsluiten gaat sowieso door */ }
+        Session = null;
     }
 
     void OnDestroy()

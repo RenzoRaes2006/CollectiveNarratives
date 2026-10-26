@@ -32,6 +32,7 @@ function startHub(opts) {
     .withAutomaticReconnect({ nextRetryDelayInMilliseconds: () => 2000 })
     .configureLogging(signalR.LogLevel.Warning);
   const conn = builder.build();
+  conn.keepAliveIntervalInMilliseconds = 5000; // de server verbreekt na 15 s stilte
   let stopped = false;
 
   for (const [name, fn] of Object.entries(opts.on || {})) conn.on(name, fn);

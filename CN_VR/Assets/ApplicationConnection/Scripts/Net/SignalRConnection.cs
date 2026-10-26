@@ -21,8 +21,9 @@ namespace CollectiveNarratives.Net
     public sealed class SignalRConnection : IDisposable
     {
         const byte RecordSeparator = 0x1E;
-        static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(15);
-        static readonly TimeSpan ServerTimeout = TimeSpan.FromSeconds(30); // server pingt elke 15 s
+        // Vaak pingen: crasht de game, dan merkt de server dat binnen ~15 s (en toont het grote scherm een storing).
+        static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(5);
+        static readonly TimeSpan ServerTimeout = TimeSpan.FromSeconds(30); // server pingt elke 5 s
 
         readonly ClientWebSocket _socket = new ClientWebSocket();
         readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
@@ -233,7 +234,7 @@ namespace CollectiveNarratives.Net
                     break;
 
                 case 7: // server sluit
-                    Close(msg.TryGetValue("error", out raw) ? MiniJson.ReadString(raw) : "De server heeft de verbinding gesloten");
+                    Close(msg.TryGetValue("error", out raw) ? MiniJson.ReadString(raw) : "The server closed the connection");
                     break;
 
                 // 6 = ping: niets te doen, _lastReceivedTicks is al bijgewerkt.
@@ -249,7 +250,7 @@ namespace CollectiveNarratives.Net
                     await Task.Delay(PingInterval, _cts.Token).ConfigureAwait(false);
                     if (DateTime.UtcNow - new DateTime(Interlocked.Read(ref _lastReceivedTicks), DateTimeKind.Utc) > ServerTimeout)
                     {
-                        Close("De server antwoordt niet meer");
+                        Close("The server stopped responding");
                         return;
                     }
                     await SendRecordAsync("{\"type\":6}").ConfigureAwait(false);
@@ -265,11 +266,11 @@ namespace CollectiveNarratives.Net
         {
             if (Interlocked.Exchange(ref _closed, 1) == 1) return;
             _cts.Cancel();
-            _handshake.TrySetException(new SignalRException(error ?? "Verbinding gesloten"));
+            _handshake.TrySetException(new SignalRException(error ?? "Connection closed"));
             foreach (var id in _pending.Keys)
             {
                 TaskCompletionSource<string> tcs;
-                if (_pending.TryRemove(id, out tcs)) tcs.TrySetException(new SignalRException("Verbinding verbroken"));
+                if (_pending.TryRemove(id, out tcs)) tcs.TrySetException(new SignalRException("Connection lost"));
             }
             try { _socket.Abort(); } catch { }
             var closed = Closed;

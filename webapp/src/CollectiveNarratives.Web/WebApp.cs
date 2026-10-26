@@ -9,7 +9,7 @@ namespace CollectiveNarratives.Web;
 
 public static class WebApp
 {
-    // Een beeld van 640×360 in JPEG is ongeveer 30–60 KB.
+    // Een beeld van 1280×720 in JPEG is ongeveer 80–150 KB.
     public const int MaxFrameBytes = 300 * 1024;
 
     // configure: voor de tests (bv. een nep-klok of andere instellingen).
@@ -26,7 +26,14 @@ public static class WebApp
         services.AddSingleton<PublicUrl>();
         services.AddSingleton<GameKey>();
         services.AddHostedService<SessionCleanupService>();
-        services.AddSignalR(o => o.AddFilter<SessionExceptionFilter>());
+        services.AddSignalR(o =>
+        {
+            o.AddFilter<SessionExceptionFilter>();
+            // Een gecrashte game (of telefoon) snel opmerken: iedereen pingt elke 5 s, na 15 s stilte is de verbinding weg.
+            // Achter Cloudflare komt een afgebroken verbinding anders pas na de standaard 30 s door.
+            o.KeepAliveInterval = TimeSpan.FromSeconds(5);
+            o.ClientTimeoutInterval = TimeSpan.FromSeconds(15);
+        });
 
         // Achter de Cloudflare Tunnel: https en het echte IP van de bezoeker (voor JoinGuard) komen uit de X-Forwarded-headers.
         // Alle proxies vertrouwen mag, want de container is alleen via de tunnel bereikbaar (geen poort open naar buiten).
