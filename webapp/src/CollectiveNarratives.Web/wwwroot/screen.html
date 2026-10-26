@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Groot scherm – Home Alone VR</title>
+    <title>Groot scherm – Alone at Christmas VR</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
     <link rel="stylesheet" href="/css/style.css" />
@@ -15,7 +15,7 @@
     <main>
       <!-- Koppelen: code uit de VR-bril invullen (op /screen) -->
       <section id="pair" hidden>
-        <div class="logo"><span class="home">Home</span><span class="alone">Alone</span><span class="vr">GROOT SCHERM</span></div>
+        <div class="logo"><span class="home">Alone</span><span class="alone">at Christmas</span><span class="vr">GROOT SCHERM</span></div>
         <h1>Koppel het grote scherm</h1>
         <p class="big-text">Typ de code die in de VR-bril staat.</p>
         <div id="pair-code"></div>
@@ -33,7 +33,7 @@
       <section id="lobby" hidden>
         <div class="qr-card"><img id="lobby-qr" alt="QR-code naar de stempagina" /></div>
         <div class="join-info">
-          <div class="logo" style="text-align: left"><span class="home">Home</span><span class="alone">Alone</span></div>
+          <div class="logo" style="text-align: left"><span class="home">Alone</span><span class="alone">at Christmas</span></div>
           <p class="step">Scan de QR-code of ga naar</p>
           <p class="url" id="lobby-host"></p>
           <p class="step">en typ de code</p>
@@ -49,18 +49,19 @@
       <!-- Tijdens het spel -->
       <section id="game" hidden>
         <div class="card player-view" id="main-view">
-          <!-- Spelerzicht komt in fase 5. Tot dan het titelbeeld. -->
+          <!-- Zicht van de speler: de game stuurt een paar beelden per seconde. Zonder beeld: het titelbeeld. -->
+          <img id="view-video" class="player-video" alt="Wat de speler in de bril ziet" hidden />
           <div id="view-title">
-            <div class="logo"><span class="home">Home</span><span class="alone">Alone</span><span class="vr">VR</span></div>
+            <div class="logo"><span class="home">Alone</span><span class="alone">at Christmas</span><span class="vr">VR</span></div>
             <p class="placeholder">Hier komt straks het zicht van de speler.</p>
           </div>
-          <div id="view-together" class="together-view" hidden>
+          <div id="view-together" class="together-view overlay" hidden>
             <p class="message">Allemaal tegelijk drukken!</p>
             <p class="label" id="together-label"></p>
             <p class="count" id="together-count"></p>
             <div class="bar"><div class="together-fill" id="together-fill"></div></div>
           </div>
-          <div id="view-ending" class="ending-view" hidden>
+          <div id="view-ending" class="ending-view overlay" hidden>
             <p class="muted big-text" id="ending-number"></p>
             <h1 id="ending-name"></h1>
             <ul id="ending-choices"></ul>
@@ -230,12 +231,13 @@
         $("game-viewers").textContent = s.viewers;
         plural(s.viewers, $("game-viewers-word"));
 
-        // Grote vlak: einde > samen-actie > titelbeeld
+        // Grote vlak: einde of samen-actie (over het spelerzicht heen), anders spelerzicht of titelbeeld
         $("view-ending").hidden = !s.ending;
         $("view-together").hidden = !!s.ending || !s.together.active;
-        $("view-title").hidden = !!s.ending || s.together.active;
+        updateMainView();
         if (s.ending) renderEnding(s);
         else if (s.together.active) renderTogether(s.together);
+        pollFrames();
 
         // Stemming rechts
         $("vote-active").hidden = !s.active;
@@ -245,6 +247,46 @@
         else if (s.last) renderLast(s.last);
 
         show("game");
+      }
+
+      // ---------- Zicht van de speler ----------
+      // Haalt telkens het nieuwste beeld op (± 8 per seconde). Komt er 3 s niets, dan weer het titelbeeld.
+      let polling = false;
+      let lastFrameAt = 0;
+
+      function hasVideo() {
+        return Date.now() - lastFrameAt < 3000;
+      }
+
+      function updateMainView() {
+        const overlay = state && (state.ending || state.together.active);
+        $("view-video").hidden = !hasVideo();
+        $("view-title").hidden = !!overlay || hasVideo();
+      }
+
+      async function pollFrames() {
+        if (polling || !code) return;
+        polling = true;
+        const img = $("view-video");
+        while (!finished) {
+          const started = performance.now();
+          let got = false;
+          try {
+            const res = await fetch(`/api/sessions/${code}/frame.jpg`, { cache: "no-store" });
+            if (res.status === 200) {
+              const url = URL.createObjectURL(await res.blob());
+              const previous = img.src;
+              img.onload = () => previous.startsWith("blob:") && URL.revokeObjectURL(previous);
+              img.src = url;
+              lastFrameAt = Date.now();
+              got = true;
+            }
+          } catch {}
+          updateMainView();
+          const wait = got ? Math.max(0, 120 - (performance.now() - started)) : 1000;
+          await new Promise((r) => setTimeout(r, wait));
+        }
+        polling = false;
       }
 
       function tally(el, options, winner) {

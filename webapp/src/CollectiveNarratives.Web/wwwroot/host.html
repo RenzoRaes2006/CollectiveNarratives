@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Host – Home Alone VR</title>
+    <title>Host – Alone at Christmas VR</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
     <link rel="stylesheet" href="/css/style.css" />
@@ -60,7 +60,7 @@
     <div class="snow"></div>
     <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
     <main>
-      <div class="logo"><span class="home">Home</span><span class="alone">Alone</span><span class="vr">NEP-GAME</span></div>
+      <div class="logo"><span class="home">Alone</span><span class="alone">at Christmas</span><span class="vr">NEP-GAME</span></div>
       <p class="muted">Doet wat Unity doet, via dezelfde hub (zie UNITY-KOPPELING.md). Handig om de website te testen zonder headset.</p>
 
       <div class="card">
@@ -84,6 +84,10 @@
           <a id="phone-link" target="_blank"></a>
         </p>
         <p id="paired" class="muted">Nog geen groot scherm gekoppeld.</p>
+        <label class="row" style="margin-top: 8px">
+          <input type="checkbox" id="fake-view" style="flex: 0 0 auto" />
+          <span>Nep-spelerzicht sturen (bewegend testbeeld, 8 per seconde, zoals Unity)</span>
+        </label>
         <div class="row" style="margin-top: 8px">
           <button id="tutorial">StartTutorial(60)</button>
           <button id="start-game">StartGame()</button>
@@ -254,6 +258,37 @@
           $("decide-buttons").appendChild(b);
         }
       }
+
+      // Nep-spelerzicht: tekent een testbeeld en POST het als JPEG, net zoals PlayerViewStreamer in Unity.
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 360;
+      let sendingFrame = false;
+      setInterval(() => {
+        if (!$("fake-view").checked || !session || sendingFrame) return;
+        const g = canvas.getContext("2d");
+        const t = Date.now() / 1000;
+        g.fillStyle = "#13203a";
+        g.fillRect(0, 0, 640, 360);
+        g.fillStyle = "#f4c542";
+        g.beginPath();
+        g.arc(320 + Math.sin(t) * 220, 180 + Math.cos(t * 1.3) * 100, 40, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = "#fff8eb";
+        g.font = "bold 28px sans-serif";
+        g.fillText("Nep-spelerzicht " + new Date().toLocaleTimeString(), 24, 48);
+        sendingFrame = true;
+        canvas.toBlob(async (blob) => {
+          try {
+            await fetch(`/api/sessions/${session.code}/frame`, {
+              method: "POST",
+              headers: { "Content-Type": "image/jpeg", "X-Game-Token": session.gameToken },
+              body: blob,
+            });
+          } catch {}
+          sendingFrame = false;
+        }, "image/jpeg", 0.6);
+      }, 125);
 
       $("stop").onclick = () => call("StopVote");
       $("together").onclick = () => call("StartTogether", $("together-label").value, 5);

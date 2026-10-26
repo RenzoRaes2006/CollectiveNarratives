@@ -12,8 +12,8 @@ using UnityEngine;
 [Serializable] public class VoteResult { public int voteId; public string id; public string question; public string winner; public string decidedBy; public int total; public VoteOption[] options; }
 [Serializable] public class TogetherResult { public int attempt; public bool success; public int presses; public int needed; }
 [Serializable] public class SessionInfo { public string code; public string gameToken; public string joinUrl; public string screenUrl; }
-[Serializable] class ScreenPairedEvent { public int screens; }
-[Serializable] class ViewersChangedEvent { public int viewers; }
+[Serializable] public class ScreenPairedEvent { public int screens; }
+[Serializable] public class ViewersChangedEvent { public int viewers; }
 
 // Praat via SignalR met de website (webapp/). Vervangt de oude VoteClient (HTTP-polling).
 // - StartSession() maakt een sessie: Code staat dan klaar om in de bril te tonen.

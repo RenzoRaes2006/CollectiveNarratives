@@ -1,17 +1,18 @@
-# Plan: Home Alone VR online (website + groot scherm + SignalR)
+# Plan: Alone at Christmas VR online (website + groot scherm + SignalR)
 
-19 oktober 2026 · fase 1 t/m 3 gebouwd, fase 4 klaar (wacht op de VPS)
+19 oktober 2026 · fase 1 t/m 3 en 5a gebouwd, fase 4 klaar (wacht op de VPS)
 
 ## Stand van zaken
 
 | Fase | Status |
 |---|---|
 | 0. Spike | Gekozen voor **optie B** (eigen SignalR-client, `CN_VR/Assets/ApplicationConnection/Scripts/Net/`). Getest tegen de echte server vanuit `webapp/tests`, en gecompileerd tegen de Unity 6.3-DLL's. **Nog te doen: testen in een echte Quest-build.** |
-| 1. Server | Klaar: `webapp/src/CollectiveNarratives.Web`, 53 tests groen. Node-versie verwijderd. `UNITY-KOPPELING.md` herschreven. |
+| 1. Server | Klaar: `webapp/src/CollectiveNarratives.Web`, 56 tests groen. Node-versie verwijderd. `UNITY-KOPPELING.md` herschreven. |
 | 2. Websitepagina's | Klaar: `/`, `/poll/{code}`, `/screen`, `/screen/{code}`, `/host` (nep-game). Volledige flow getest in de browser. |
-| 3. Unity | Klaar in de testscene `ApplicationConnection`: code in de bril, koppelen, tutorial-placeholder + 60 s, teststemming. **Nog niet in Play mode getest** (Unity was niet bereikbaar vanuit Claude). |
+| 3. Unity | Klaar in de testscene `ApplicationConnection`: code in de bril, koppelen, tutorial-placeholder + 60 s, teststemming. In de Quest: hoofdtracking (`XRRigSetup`), bediening met de controllers, “zonder groot scherm spelen” na 2 minuten. **Nog niet in Play mode of op de Quest getest** (Unity was niet bereikbaar vanuit Claude). |
 | 4. DevOps | Bestanden klaar: `webapp/Dockerfile`, `deploy/`, `.github/workflows/web.yml`. Wacht op de VPS (`deploy/README.md`) en daarna DNS en GitHub-secrets (`deploy/EIGENAAR.md`). |
-| 5, 6 | Nog niet begonnen. Plekken op `/screen` staan klaar. |
+| 5. Spelerzicht | **5a gebouwd, met een kleine wijziging:** JPEG’s via gewone HTTP in plaats van via de hub (geen base64, geen grote SignalR-berichten). Unity: `PlayerViewStreamer.cs`. Website en server getest met een nep-beeld; de Quest-kant nog niet. |
+| 6. Minimap | Nog niet begonnen. De plek op `/screen` staat klaar. |
 
 Dit plan beschrijft hoe de stem-website online komt op onze VPS en ons domein, met een groot-schermpagina en een SignalR-koppeling met de game. Zodra we op de server kunnen, werken we het af van boven naar beneden. Alleen de website gaat online, de game niet.
 
@@ -21,7 +22,7 @@ Dit plan beschrijft hoe de stem-website online komt op onze VPS en ons domein, m
 - **Per speelsessie een code van 6 cijfers**, bv. `365895`. De game maakt die code aan bij het starten en toont hem **in de VR-bril**. Ze werkt alleen voor die sessie en verdwijnt als de game klaar is.
 - **Koppelen met het grote scherm:** op de projectorlaptop open je `collective-narratives.app/screen` en typ je de code uit de bril. Pas als het grote scherm gekoppeld is, gaat de game verder.
 - **Daarna de tutorial (nu nog leeg) als wachtkamer.** Het grote scherm toont de QR (`collective-narratives.app/poll/365895`) **en** de code in grote cijfers, zodat het publiek kan joinen. Wie niet wil scannen, gaat naar `collective-narratives.app` en typt de code. Het echte spel start als de speler klaar is met de tutorial **en** er minstens 60 seconden voorbij zijn.
-- **De telefoon-app blijft zoals hij nu is** (zelfde schermen en Home Alone-stijl). Alleen de verbinding eronder verandert.
+- **De telefoon-app blijft zoals hij nu is** (zelfde schermen en kerststijl van de site). Alleen de verbinding eronder verandert.
 - **Game ↔ website gaat via SignalR.** De server wordt daarom ASP.NET Core in plaats van Node. De game hoeft niet meer te pollen: hij krijgt de uitslag als een event.
 - **DevOps:** elke merge naar `main` die `webapp/` raakt, wordt automatisch getest, als Docker-image gebouwd en op de VPS gezet. Unity-wijzigingen starten deze pipeline niet.
 - **Later:** het zicht van de speler op het grote scherm (fase 5) en de minimap (fase 6).
@@ -107,7 +108,7 @@ Het grote scherm kan niets sturen behalve de koppeling zelf. Daarna toont het al
 
 ### Groot scherm (`/screen`)
 
-Layout in 16:9, in dezelfde Home Alone-stijl als de telefoons:
+Layout in 16:9, in dezelfde kerststijl van de site als de telefoons:
 
 ```
 ┌──────────────────────────────────────────────┬──────────────────┐

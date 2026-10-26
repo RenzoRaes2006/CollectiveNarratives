@@ -1,6 +1,6 @@
 # CollectiveNarratives
 
-Home Alone VR: één speler in VR, het publiek stemt mee met de telefoon, alles live op een groot scherm.
+Alone at Christmas VR: één speler in VR, het publiek stemt mee met de telefoon, alles live op een groot scherm.
 
 | Map | Wat |
 |---|---|

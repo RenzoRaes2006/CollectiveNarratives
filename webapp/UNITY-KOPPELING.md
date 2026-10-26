@@ -1,4 +1,4 @@
-# Koppeling website ↔ Unity (Home Alone VR)
+# Koppeling website ↔ Unity (Alone at Christmas VR)
 
 Dit document is de afspraak tussen de website (map `webapp/`) en het Unity-project (`CN_VR/`).
 **Verander je iets aan de hub? Pas dan eerst dit document aan en laat het het andere team weten.**
@@ -63,7 +63,17 @@ In `CN_VR/Assets/ApplicationConnection/` (scene `Assets/Scenes/ApplicationConnec
 | `Scripts/Net/MiniJson.cs` | Haalt SignalR-berichten uit elkaar; de inhoud gaat daarna naar `JsonUtility`. |
 | `Scripts/ServerConfig.cs` + `Resources/ServerConfig.asset` | Serveradres en game key. In de Editor `http://localhost:5000`, in een build `https://collective-narratives.app`. |
 | `Scripts/Tutorial.cs` | Plek voor de tutorial. Nu leeg (meteen klaar). |
-| `Scripts/ApplicationConnection.cs` | Test-flow: code in de bril → koppelen → tutorial + 60 s → teststemming "telefoon". Debug-info linksboven op de pc. |
+| `Scripts/ApplicationConnection.cs` | Test-flow: code in de bril → koppelen → tutorial + 60 s → teststemming "telefoon". Paneel in de bril dat je blik volgt, debug-info linksboven op de pc. |
+| `Scripts/PlayerViewStreamer.cs` | Zicht van de speler naar het grote scherm: extra camera, 640×360, 8 beelden per seconde als JPEG. Zet `streamEnabled` uit als de Quest het niet trekt. |
+| `Scripts/XRRigSetup.cs` | Hoofdtracking in de Quest voor een scene zonder XR-rig (maakt er zelf een XR Origin bij). In de Editor zonder bril doet hij niets. |
+
+**Bediening in de testscene:**
+
+| Wat | In de bril (controllers) | In de Editor |
+|---|---|---|
+| Zonder groot scherm spelen | A/X, verschijnt na 2 minuten op het codescherm | S |
+| Kevin beslist bij gelijkspel | Naar de telefoon kijken + trigger = opnemen. 8 s niets doen = laten rinkelen | 1 = opnemen, 2 = laten rinkelen |
+| Opnieuw (nieuwe code) | A/X op het uitslagscherm | R |
 
 **Game key voor de online server:** zet hem in `CN_VR/Assets/ApplicationConnection/Resources/GameKey.txt` (één regel, staat in `.gitignore`). Zonder dat bestand gebruikt de game `dev-game-key`, en dat werkt alleen lokaal. De sleutel krijg je van de VPS-beheerder (`/opt/collective-narratives/.env`).
 
@@ -190,7 +200,19 @@ Fouten (onbekende keuze, sessie afgelopen, ...) komen terug als foutmelding op d
 - Maximum 2 uur per sessie.
 - Alles in het geheugen van de server: een herstart wist lopende sessies. **Niet deployen tijdens een voorstelling.**
 
+## Zicht van de speler (HTTP, niet via de hub)
+
+De beelden gaan niet via SignalR: dat zou base64 en grote berichten betekenen. Gewone HTTP is eenvoudiger en sneller.
+
+| URL | Wie | Wat |
+|---|---|---|
+| `POST /api/sessions/{code}/frame` | game | Body: één JPEG (`Content-Type: image/jpeg`, max. 300 KB). Header `X-Game-Token: <gameToken>`. Antwoord 204; 429 = te snel na het vorige beeld (max. 25 per seconde), gewoon het volgende sturen. |
+| `GET /api/sessions/{code}/frame.jpg` | groot scherm | Het nieuwste beeld, of 204 als er al 5 s geen is. |
+
+`/screen` haalt ongeveer 8 beelden per seconde op en toont ze groot. Komt er 3 s niets, dan weer het titelbeeld. Samen-actie en einde liggen er bovenop. Testen zonder Unity: op `/host` het vakje “Nep-spelerzicht sturen” aanvinken.
+
 ## Nog niet gebouwd
 
-- **Spelerzicht** op het grote scherm (fase 5) en **minimap** (fase 6): de plekken staan al op `/screen`.
-- **Kevin beslist in VR** (iets aanraken). Nu: toets 1/2 op de pc.
+- **Minimap** (fase 6): de plek staat al op `/screen`.
+- **Vloeiender spelerzicht via WebRTC** (fase 5b), alleen als 8 beelden per seconde te schokkerig blijkt.
+- **Kevin beslist door de telefoon echt vast te pakken** (XR Interaction Toolkit). Nu: kijken + trigger.

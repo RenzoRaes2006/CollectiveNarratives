@@ -13,19 +13,29 @@ using UnityEngine.InputSystem.UI;
 // 2. Wachten tot het grote scherm de code invult op <site>/screen (ScreenPaired).
 // 3. Tutorial (nu leeg) en minstens 60 s wachten, zodat het publiek kan joinen. Dan StartGame.
 // 4. Teststemming: de telefoon gaat, het publiek stemt, de uitslag komt hier binnen.
-// In de bril: één paneel in de wereld (code, wachten, uitslag). Op de pc: een debug-overlay (niet zichtbaar in VR).
-// Toetsen in de Editor: S = zonder groot scherm spelen, 1/2 = Kevin kiest bij gelijkspel, R = opnieuw (nieuwe code).
+// In de bril: één paneel in de wereld dat je blik volgt (code, wachten, uitslag). Op de pc: een debug-overlay.
+// Het zicht van de speler gaat naar het grote scherm (PlayerViewStreamer). In de Quest zorgt XRRigSetup voor hoofdtracking.
+// Bediening:            bril (controllers)                          Editor (toetsen)
+//   zonder groot scherm  A/X, zichtbaar na 2 minuten op het codescherm   S
+//   Kevin beslist        naar de telefoon kijken + trigger = opnemen,    1 = opnemen, 2 = laten rinkelen
+//                        8 s niets doen = laten rinkelen
+//   opnieuw (nieuwe code) A/X op het uitslagscherm                       R
 public class ApplicationConnection : MonoBehaviour
 {
     [FormerlySerializedAs("voteClient")] public SessionClient sessionClient;
     public PhoneRinger phone;
     public Tutorial tutorial;
+    public PlayerViewStreamer playerView;
     [Tooltip("Minimale wachttijd na het koppelen, zodat het publiek kan joinen (s)")]
     public int lobbySeconds = 60;
     [Tooltip("Stemtijd in seconden (game flow: 12)")]
     public int voteSeconds = 12;
     [Tooltip("Hoe lang de telefoon na de stemming nog rinkelt bij 'laten rinkelen'")]
     public float keepRingingSeconds = 4f;
+    [Tooltip("Na zoveel seconden op het codescherm mag de speler kiezen om zonder groot scherm te spelen")]
+    public float offlineOptionAfter = 120f;
+    [Tooltip("Zo lang heeft Kevin om de telefoon op te nemen bij een gelijkspel; daarna laat hij hem rinkelen")]
+    public float kevinDecideSeconds = 8f;
     [Tooltip("Afstand van het paneel in de bril (m)")]
     public float panelDistance = 2.2f;
 
@@ -33,19 +43,30 @@ public class ApplicationConnection : MonoBehaviour
     Phase phase;
     bool offline; // zonder groot scherm verder
     float lobbyStart;
+    float codeShownAt;
+    float kevinDeadline;
     string kevinChoice;
 
     Font font;
     GameObject vrPanel;
     Text vrTitle, vrBig, vrSmall;
+    bool panelPlaced;
     Text debugText;
     GameObject kevinButtons;
 
+#if ENABLE_INPUT_SYSTEM
+    InputAction triggerAction; // trigger links of rechts
+    InputAction buttonAction; // A of X
+#endif
+
     void Awake()
     {
+        if (Find<XRRigSetup>() == null) gameObject.AddComponent<XRRigSetup>(); // hoofdtracking in de Quest
         if (sessionClient == null) sessionClient = Find<SessionClient>() ?? gameObject.AddComponent<SessionClient>();
         if (phone == null) phone = Find<PhoneRinger>();
         if (tutorial == null) tutorial = Find<Tutorial>() ?? gameObject.AddComponent<Tutorial>();
+        if (playerView == null) playerView = Find<PlayerViewStreamer>() ?? gameObject.AddComponent<PlayerViewStreamer>();
+        playerView.sessionClient = sessionClient;
 #if UNITY_2022_2_OR_NEWER
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 #else
@@ -53,6 +74,28 @@ public class ApplicationConnection : MonoBehaviour
 #endif
         BuildVrPanel();
         BuildDebugOverlay();
+    }
+
+    void OnEnable()
+    {
+#if ENABLE_INPUT_SYSTEM
+        triggerAction = new InputAction("Trigger", InputActionType.Button);
+        triggerAction.AddBinding("<XRController>{RightHand}/triggerPressed");
+        triggerAction.AddBinding("<XRController>{LeftHand}/triggerPressed");
+        buttonAction = new InputAction("A of X", InputActionType.Button);
+        buttonAction.AddBinding("<XRController>{RightHand}/primaryButton");
+        buttonAction.AddBinding("<XRController>{LeftHand}/primaryButton");
+        triggerAction.Enable();
+        buttonAction.Enable();
+#endif
+    }
+
+    void OnDisable()
+    {
+#if ENABLE_INPUT_SYSTEM
+        triggerAction?.Dispose();
+        buttonAction?.Dispose();
+#endif
     }
 
     void Start() => StartCoroutine(RunSession());
@@ -74,14 +117,15 @@ public class ApplicationConnection : MonoBehaviour
         kevinButtons.SetActive(false);
         offline = false;
 
-        // 1. Verbinden en sessie maken (blijft proberen tot het lukt, of S = zonder groot scherm).
+        // 1. Verbinden en sessie maken (blijft proberen tot het lukt, of zonder groot scherm verder).
         phase = Phase.Connecting;
+        codeShownAt = Time.unscaledTime;
         while (string.IsNullOrEmpty(sessionClient.Code) && !offline)
         {
-            ShowVr("Verbinden...", "", "Even geduld, we zoeken de server.");
+            ShowVr("Verbinden...", "", "Even geduld, we zoeken de server." + OfflineHint());
             yield return sessionClient.StartSession();
             if (!string.IsNullOrEmpty(sessionClient.Code)) break;
-            ShowVr("Geen verbinding", "", "Server niet bereikbaar. Opnieuw proberen...");
+            ShowVr("Geen verbinding", "", "Server niet bereikbaar. Opnieuw proberen..." + OfflineHint());
             yield return WaitUnscaled(3f);
         }
 
@@ -89,9 +133,13 @@ public class ApplicationConnection : MonoBehaviour
         if (!offline)
         {
             phase = Phase.ShowCode;
+            codeShownAt = Time.unscaledTime;
             string site = HostOf(sessionClient.ServerUrl);
-            ShowVr("Koppel het grote scherm", PrettyCode(sessionClient.Code), $"Ga op de laptop naar {site}/screen\nen typ deze code.");
-            yield return new WaitUntil(() => sessionClient.ScreenPaired || sessionClient.SessionLost || offline);
+            while (!sessionClient.ScreenPaired && !sessionClient.SessionLost && !offline)
+            {
+                ShowVr("Koppel het grote scherm", PrettyCode(sessionClient.Code), $"Ga op de laptop naar {site}/screen\nen typ deze code." + OfflineHint());
+                yield return null;
+            }
             if (sessionClient.SessionLost)
             {
                 StartCoroutine(RunSession()); // sessie vervallen: nieuwe code
@@ -121,6 +169,10 @@ public class ApplicationConnection : MonoBehaviour
 
     float LobbyLeft() => lobbySeconds - (Time.unscaledTime - lobbyStart);
 
+    bool OfflineOptionVisible => (phase == Phase.Connecting || phase == Phase.ShowCode) && Time.unscaledTime - codeShownAt >= offlineOptionAfter;
+
+    string OfflineHint() => OfflineOptionVisible ? "\n\nGeen groot scherm? Druk op A om zonder te spelen." : "";
+
     IEnumerator PhoneVote()
     {
         phase = Phase.Voting;
@@ -133,13 +185,18 @@ public class ApplicationConnection : MonoBehaviour
         string choice = result != null ? result.winner : "";
         if (string.IsNullOrEmpty(choice))
         {
-            // Gelijkspel, niemand stemde of server weg: Kevin beslist.
-            // Placeholder: toets 1/2 of de knoppen op de pc. Later raakt Kevin iets aan in VR.
+            // Gelijkspel, niemand stemde of zonder server: Kevin beslist.
             phase = Phase.KevinDecides;
             kevinChoice = null;
+            kevinDeadline = Time.unscaledTime + kevinDecideSeconds;
             kevinButtons.SetActive(true);
-            ShowVr("Jij beslist!", "", "1 = opnemen   2 = laten rinkelen");
-            yield return new WaitUntil(() => kevinChoice != null);
+            while (kevinChoice == null)
+            {
+                float left = kevinDeadline - Time.unscaledTime;
+                if (left <= 0) kevinChoice = "rinkelen";
+                else ShowVr("Jij beslist!", $"{Mathf.CeilToInt(left)} s", "Kijk naar de telefoon en druk op de trigger om op te nemen.\nNiets doen = laten rinkelen.");
+                yield return null;
+            }
             kevinButtons.SetActive(false);
             choice = kevinChoice;
             if (result != null) yield return sessionClient.Decide(result.voteId, choice);
@@ -149,11 +206,11 @@ public class ApplicationConnection : MonoBehaviour
         if (choice == "opnemen")
         {
             if (phone != null) phone.PickUp();
-            ShowVr("Opnemen", "", "\"Hallo...?\"\n\nR = opnieuw");
+            ShowVr("Opnemen", "", "\"Hallo...?\"\n\nA = opnieuw");
         }
         else
         {
-            ShowVr("Laten rinkelen", "", "De telefoon blijft gaan...\n\nR = opnieuw");
+            ShowVr("Laten rinkelen", "", "De telefoon blijft gaan...\n\nA = opnieuw");
             yield return WaitUnscaled(keepRingingSeconds);
             if (phone != null) phone.StopRinging();
         }
@@ -176,7 +233,8 @@ public class ApplicationConnection : MonoBehaviour
 
     void Update()
     {
-        if ((phase == Phase.Connecting || phase == Phase.ShowCode) && KeyDown(Key.S))
+        bool button = ButtonPressed();
+        if ((phase == Phase.Connecting || phase == Phase.ShowCode) && (KeyDown(Key.S) || (button && OfflineOptionVisible)))
         {
             // Zonder groot scherm spelen: Kevin beslist alles zelf.
             offline = true;
@@ -184,10 +242,10 @@ public class ApplicationConnection : MonoBehaviour
         }
         if (phase == Phase.KevinDecides)
         {
-            if (KeyDown(Key.One)) kevinChoice = "opnemen";
+            if (KeyDown(Key.One) || (TriggerPressed() && LookingAtPhone())) kevinChoice = "opnemen";
             if (KeyDown(Key.Two)) kevinChoice = "rinkelen";
         }
-        if (phase == Phase.Result && KeyDown(Key.R))
+        if (phase == Phase.Result && (KeyDown(Key.R) || button))
         {
             StopAllCoroutines();
             phase = Phase.Connecting;
@@ -195,6 +253,17 @@ public class ApplicationConnection : MonoBehaviour
         }
 
         UpdateDebugOverlay();
+    }
+
+    void LateUpdate() => FollowHead();
+
+    // Kijkt de speler (ongeveer) naar de telefoon?
+    bool LookingAtPhone()
+    {
+        var cam = Camera.main;
+        if (cam == null || phone == null) return true; // niets om naar te kijken: elke trigger telt
+        var toPhone = phone.transform.position - cam.transform.position;
+        return Vector3.Angle(cam.transform.forward, toPhone) < 20f;
     }
 
     void UpdateDebugOverlay()
@@ -205,6 +274,9 @@ public class ApplicationConnection : MonoBehaviour
             $"Code: {(string.IsNullOrEmpty(c.Code) ? "-" : PrettyCode(c.Code))}   Groot scherm: {(c.ScreenPaired ? "gekoppeld" : "nog niet")}   Kijkers: {c.Viewers}\n" +
             $"Fase: {phase}";
         if (phase == Phase.WaitingForAudience) text += $" (nog {Mathf.CeilToInt(Mathf.Max(0, LobbyLeft()))} s)";
+        if (playerView != null)
+            text += $"\nSpelerzicht: {(playerView.IsStreaming ? $"aan ({playerView.framesPerSecond} per s)" : "uit")}"
+                    + (string.IsNullOrEmpty(playerView.LastError) ? "" : $" <color=#ff8080>{playerView.LastError}</color>");
         var vote = c.LiveVote;
         if (vote != null && vote.options != null)
         {
@@ -214,6 +286,26 @@ public class ApplicationConnection : MonoBehaviour
         if (!string.IsNullOrEmpty(c.LastError)) text += $"\n<color=#ff8080>{c.LastError}</color>";
         if (phase == Phase.Connecting || phase == Phase.ShowCode) text += "\n[S] zonder groot scherm spelen";
         debugText.text = text;
+    }
+
+    // ---------- Invoer ----------
+
+    bool TriggerPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        return triggerAction != null && triggerAction.WasPressedThisFrame();
+#else
+        return false;
+#endif
+    }
+
+    bool ButtonPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        return buttonAction != null && buttonAction.WasPressedThisFrame();
+#else
+        return false;
+#endif
     }
 
     enum Key { S, R, One, Two }
@@ -259,7 +351,37 @@ public class ApplicationConnection : MonoBehaviour
 
     void HideVr() => vrPanel.SetActive(false);
 
-    // World-space canvas recht voor de camera, op ooghoogte. 1600x900 pixels = ongeveer 1,9 x 1,1 m.
+    // Het paneel blijft vindbaar: kijkt de speler er ver naast, dan schuift het rustig mee naar voren.
+    // De eerste keer wordt het pas geplaatst als de hoofdtracking een geldige hoogte geeft.
+    void FollowHead()
+    {
+        var cam = Camera.main;
+        if (cam == null || !vrPanel.activeSelf) return;
+        var head = cam.transform;
+        if (head.position.y < 0.5f && Time.timeSinceLevelLoad < 2f) return; // tracking nog niet klaar
+
+        var forward = Vector3.ProjectOnPlane(head.forward, Vector3.up);
+        if (forward.sqrMagnitude < 0.01f) return;
+        forward.Normalize();
+        var target = head.position + forward * panelDistance + Vector3.up * 0.15f;
+        var rt = vrPanel.transform;
+
+        if (!panelPlaced)
+        {
+            rt.SetPositionAndRotation(target, Quaternion.LookRotation(forward, Vector3.up));
+            panelPlaced = true;
+            return;
+        }
+        var toPanel = Vector3.ProjectOnPlane(rt.position - head.position, Vector3.up);
+        if (Vector3.Angle(forward, toPanel) > 40f || Mathf.Abs(toPanel.magnitude - panelDistance) > 1f)
+        {
+            float t = 1f - Mathf.Exp(-3f * Time.unscaledDeltaTime);
+            rt.position = Vector3.Lerp(rt.position, target, t);
+            rt.rotation = Quaternion.Slerp(rt.rotation, Quaternion.LookRotation(forward, Vector3.up), t);
+        }
+    }
+
+    // World-space canvas. 1600x900 pixels = ongeveer 1,9 x 1,1 m.
     void BuildVrPanel()
     {
         vrPanel = new GameObject("Paneel in de bril", typeof(Canvas), typeof(CanvasScaler));
@@ -271,18 +393,11 @@ public class ApplicationConnection : MonoBehaviour
         rt.sizeDelta = new Vector2(1600, 900);
         rt.localScale = Vector3.one * 0.0012f;
 
-        var cam = Camera.main;
-        Vector3 eye = cam != null ? cam.transform.position : new Vector3(0, 1.6f, 0);
-        Vector3 forward = cam != null ? Vector3.ProjectOnPlane(cam.transform.forward, Vector3.up).normalized : Vector3.forward;
-        if (forward.sqrMagnitude < 0.01f) forward = Vector3.forward;
-        rt.position = eye + forward * panelDistance + Vector3.up * 0.15f;
-        rt.rotation = Quaternion.LookRotation(forward, Vector3.up);
-
         Box(vrPanel.transform, "Achtergrond", new Color(0.05f, 0.07f, 0.12f, 0.88f), Vector2.zero, new Vector2(1600, 900));
         vrTitle = Label(vrPanel.transform, "", 80, new Vector2(0, 300), new Vector2(1500, 120));
         vrTitle.color = new Color(0.96f, 0.77f, 0.26f); // goud, zoals de website
         vrBig = Label(vrPanel.transform, "", 230, new Vector2(0, 60), new Vector2(1550, 300));
-        vrSmall = Label(vrPanel.transform, "", 56, new Vector2(0, -260), new Vector2(1500, 260));
+        vrSmall = Label(vrPanel.transform, "", 56, new Vector2(0, -260), new Vector2(1500, 300));
     }
 
     // ---------- Debug-overlay op de pc ----------
@@ -307,11 +422,11 @@ public class ApplicationConnection : MonoBehaviour
 #endif
         }
 
-        var bg = Box(canvasGo.transform, "Debug achtergrond", new Color(0, 0, 0, 0.55f), Vector2.zero, new Vector2(900, 260));
+        var bg = Box(canvasGo.transform, "Debug achtergrond", new Color(0, 0, 0, 0.55f), Vector2.zero, new Vector2(900, 300));
         var bgRt = bg.rectTransform;
         bgRt.anchorMin = bgRt.anchorMax = bgRt.pivot = new Vector2(0, 1);
         bgRt.anchoredPosition = new Vector2(20, -20);
-        debugText = Label(bg.transform, "", 24, Vector2.zero, new Vector2(860, 240));
+        debugText = Label(bg.transform, "", 24, Vector2.zero, new Vector2(860, 280));
         debugText.alignment = TextAnchor.UpperLeft;
         debugText.supportRichText = true;
 
