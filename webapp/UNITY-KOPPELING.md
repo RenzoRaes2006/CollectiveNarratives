@@ -29,7 +29,9 @@ Dit document is de afspraak tussen de website (map `webapp/`) en het Unity-proje
 
 Telefoons kunnen pas joinen na stap 2 (daarvoor staat de code alleen in de bril). Late kijkers kunnen tijdens het spel nog joinen: de code staat klein onderaan het grote scherm.
 
-**Storingen:** valt de verbinding met de game weg (crash, wifi weg), dan zet de server `gameConnected` op `false` en toont het grote scherm na 3 s "Technical difficulties". Komt de game terug (`ResumeSession`), dan verdwijnt de melding. Komt ze niet terug, dan vervalt de sessie na 2 minuten en vraagt het scherm om de game te herstarten. Stopt het spelerzicht langer dan 6 s terwijl de game verbonden is (vastgelopen, bril afgezet), dan toont het scherm dezelfde melding. Heeft het scherm zelf 5 s geen verbinding met de server, dan toont het "Connection lost".
+**Game stopt:** stopt de speler de game (Play-modus uit in Unity, of de app sluit af), dan roept `SessionClient` meteen `EndSession()` aan. Het grote scherm toont "The game stopped" en de telefoons "Session over".
+
+**Storingen:** valt de verbinding met de game weg (crash, wifi weg), dan zet de server `gameConnected` op `false` en toont het grote scherm binnen ~15 s (pings elke 5 s) plus 3 s "Technical difficulties". Komt de game terug (`ResumeSession`), dan verdwijnt de melding. Komt ze niet terug, dan vervalt de sessie na 2 minuten en vraagt het scherm om de game te herstarten. Stopt het spelerzicht langer dan 6 s terwijl de game verbonden is (vastgelopen, bril afgezet), dan toont het scherm dezelfde melding. Heeft het scherm zelf 5 s geen verbinding met de server, dan toont het "Connection lost".
 
 Alle teksten voor spelers en publiek (website en game) zijn in het Engels. Id's (`telefoon`, `opnemen`, `held`, ...) blijven zoals ze zijn.
 

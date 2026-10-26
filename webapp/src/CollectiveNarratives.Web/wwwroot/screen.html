@@ -216,14 +216,13 @@
           else showProblem("Oops", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
         }
 
+        // De game stopte (gestopt, gecrasht of te lang weg): alles stopt. Het einde blijft wel staan als het er al was.
         function onEnded() {
-          const crashed = gameLostAt !== 0;
           finished = true;
           hub.stop();
           $("status").hidden = true;
-          // Het einde blijft staan. Was er geen einde, dan een melding (game weg = gecrasht).
-          if (crashed) showProblem("The game stopped", "The game crashed or lost its connection. Restart the game and enter the new code.");
-          else if (!(state && state.ending)) showProblem("Session over", "This session has ended. Restart the game and enter the new code.");
+          if (state && state.ending) return;
+          showProblem("The game stopped", "The player's game has stopped. Start the game again and enter the new code.");
         }
 
         $("skip").onclick = async () => {
