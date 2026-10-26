@@ -14,6 +14,9 @@ public interface ISessionEvents
 
     // Naar iedereen in de sessie.
     Task Ended(string code);
+
+    // Dezelfde game startte een nieuwe sessie: naar de schermen, en naar de telefoons alleen als die mee mogen.
+    Task Moved(string code, string nextCode, bool phonesToo);
 }
 
 // Fout die de game of een browser te zien krijgt (de hub maakt er een HubException van).
@@ -33,6 +36,7 @@ public sealed class Session
     readonly string _baseUrl;
 
     readonly Dictionary<string, string> _phones = []; // connectionId -> clientId (één telefoon kan even 2 verbindingen hebben)
+    readonly HashSet<string> _everJoined = []; // clientIds van alle telefoons die ooit meededen
     readonly HashSet<string> _screens = [];
     string? _gameConnection;
     DateTimeOffset? _gameLostAt;
@@ -90,6 +94,9 @@ public sealed class Session
 
     public string Code { get; }
     public string GameToken { get; }
+
+    // Geheim dat alleen een gekoppeld groot scherm krijgt. Daarmee mag het na een herstart van de game de nieuwe code opvragen.
+    public string ScreenKey { get; } = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)).Replace('+', '-').Replace('/', '_');
     public DateTimeOffset CreatedAt { get; }
     public string JoinUrl => $"{_baseUrl}/poll/{Code}";
     public string ScreenUrl => $"{_baseUrl}/screen/{Code}";
@@ -97,6 +104,17 @@ public sealed class Session
     public SessionPhase Phase
     {
         get { lock (_lock) return _phase; }
+    }
+
+    // Afgelopen met een einde (held, weg, cadeau): een volgende sessie is een nieuwe ronde, niet hetzelfde spel.
+    public bool Finished
+    {
+        get { lock (_lock) return _ending != ""; }
+    }
+
+    public IReadOnlySet<string> PhonesEverJoined()
+    {
+        lock (_lock) return _everJoined.ToHashSet();
     }
 
     public SessionState GetState()
@@ -141,6 +159,7 @@ public sealed class Session
             if (_phase == SessionPhase.Pairing) return new(false, JoinErrors.NotReady);
             int before = ViewerCount();
             _phones[connectionId] = clientId;
+            _everJoined.Add(clientId);
             if (ViewerCount() != before) AddViewers(fx);
             AddState(fx);
         }
@@ -166,7 +185,7 @@ public sealed class Session
             AddState(fx);
         }
         await Run(fx);
-        return JoinResult.Success;
+        return new JoinResult(true, "", ScreenKey);
     }
 
     public async Task Leave(string connectionId)

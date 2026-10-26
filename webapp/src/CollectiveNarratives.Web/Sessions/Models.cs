@@ -63,7 +63,8 @@ public sealed record SessionState(
 
 public sealed record CreateSessionResult(string Code, string GameToken, string JoinUrl, string ScreenUrl);
 
-public sealed record JoinResult(bool Ok, string Error)
+// Key: alleen voor het grote scherm (geheime schermsleutel, zie Session.ScreenKey).
+public sealed record JoinResult(bool Ok, string Error, string Key = "")
 {
     public static readonly JoinResult Success = new(true, "");
 }
@@ -83,3 +84,5 @@ public sealed record ScreenPairedEvent(int Screens);
 public sealed record ViewersChangedEvent(int Viewers);
 
 public sealed record LobbySkippedEvent(int Viewers);
+
+public sealed record SessionMovedEvent(string Code);

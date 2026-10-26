@@ -98,6 +98,19 @@ public static class WebApp
             }
         });
 
+        // Startte dezelfde game na deze sessie een nieuwe? Alleen met bewijs dat je erbij hoorde:
+        // ?screenKey= (geheim dat het grote scherm bij het koppelen kreeg) of ?clientId= (telefoon die meedeed).
+        // Raden heeft geen zin (sleutel van 24 willekeurige bytes, clientId moet in de oude sessie gezeten hebben), dus geen
+        // JoinGuard: veel telefoons achter hetzelfde wifi-IP mogen elkaar niet blokkeren terwijl ze wachten.
+        app.MapGet("/api/sessions/{code}/next", (string code, string? screenKey, string? clientId, HttpContext http, SessionStore store) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            string? next = !string.IsNullOrEmpty(screenKey) ? store.NextCodeForScreen(code, screenKey)
+                : !string.IsNullOrEmpty(clientId) ? store.NextCodeForPhone(code, clientId)
+                : null;
+            return next is not null ? Results.Json(new { next }) : Results.NoContent(); // 204: (nog) niets, later opnieuw proberen
+        });
+
         // QR naar de telefoonpagina van deze sessie.
         app.MapGet("/api/qr/{code}.png", (string code, HttpContext http, PublicUrl publicUrl) =>
         {

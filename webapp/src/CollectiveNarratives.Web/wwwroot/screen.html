@@ -139,6 +139,11 @@
       let hubLostAt = 0;
       let gameLostAt = 0; // 0 = game verbonden
       let skipped = false;
+      // Geheim van de server bij het koppelen: alleen daarmee volgt dit scherm de game naar een nieuwe sessie.
+      let screenKey = "";
+      try {
+        screenKey = sessionStorage.getItem("cn-screen-key-" + code) || "";
+      } catch {}
 
       function show(name) {
         for (const s of sections) $(s).hidden = s !== name;
@@ -187,7 +192,7 @@
         keepAwake();
 
         hub = startHub({
-          on: { State: render, SessionEnded: onEnded },
+          on: { State: render, SessionEnded: onEnded, SessionMoved: (e) => location.replace(`/screen/${e.code}`) },
           onStatus: (online) => {
             setStatus($("status"), online, "Connected", "Connection lost, retrying...");
             if (online) hubOnline = true;
@@ -208,21 +213,31 @@
           } catch {
             return;
           }
-          if (result.ok) return;
+          if (result.ok) {
+            screenKey = result.key;
+            try {
+              sessionStorage.setItem("cn-screen-key-" + code, screenKey);
+            } catch {}
+            return;
+          }
           finished = true;
           hub.stop();
           $("status").hidden = true;
-          if (result.error === "ended") showProblem("Session over", "This session has ended.");
+          if (result.error === "ended" && screenKey) {
+            showProblem("The game stopped", "Waiting for the game to start again...");
+            followNextSession(code, "screen", "screenKey=" + encodeURIComponent(screenKey), 30);
+          } else if (result.error === "ended") showProblem("Session over", "This session has ended.");
           else showProblem("Oops", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
         }
 
         // De game stopte (gestopt, gecrasht of te lang weg): alles stopt. Het einde blijft wel staan als het er al was.
+        // Start dezelfde game opnieuw, dan springt het scherm vanzelf naar de nieuwe code.
         function onEnded() {
           finished = true;
           hub.stop();
           $("status").hidden = true;
-          if (state && state.ending) return;
-          showProblem("The game stopped", "The player's game has stopped. Start the game again and enter the new code.");
+          if (!(state && state.ending)) showProblem("The game stopped", "Waiting for the game to start again...");
+          if (screenKey) followNextSession(code, "screen", "screenKey=" + encodeURIComponent(screenKey), 30);
         }
 
         $("skip").onclick = async () => {

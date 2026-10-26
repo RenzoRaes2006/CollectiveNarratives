@@ -174,6 +174,7 @@
 
         hub = startHub({
           accessToken: $("key").value,
+          query: "device=host-" + getClientId(), // zoals Unity: nieuwe sessie = scherm en telefoons springen mee
           on: {
             ScreenPaired: (e) => {
               log(`← ScreenPaired ${JSON.stringify(e)}`);
