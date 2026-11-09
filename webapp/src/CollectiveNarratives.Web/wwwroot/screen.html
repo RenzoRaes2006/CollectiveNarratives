@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Big screen – Alone at Christmas VR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/screen.css" />
+  </head>
+  <body class="screen">
+    <div class="snow"></div>
+    <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <main>
+      <!-- Koppelen: code uit de VR-bril invullen (op /screen) -->
+      <section id="pair" hidden>
+        <div class="logo"><span class="home">Alone</span><span class="alone">at Christmas</span><span class="vr">BIG SCREEN</span></div>
+        <h1>Pair the big screen</h1>
+        <p class="big-text">Type the code shown in the VR headset.</p>
+        <div id="pair-code"></div>
+        <p class="error" id="pair-error"></p>
+      </section>
+
+      <!-- Onbekende of afgelopen code -->
+      <section id="problem" hidden>
+        <h1 id="problem-title"></h1>
+        <p class="big-text" id="problem-text"></p>
+        <p class="big-text"><a href="/screen">Enter a new code</a></p>
+      </section>
+
+      <!-- Wachtkamer: publiek joint, speler doet de tutorial -->
+      <section id="lobby" hidden>
+        <div class="qr-card"><img id="lobby-qr" alt="QR code to the voting page" /></div>
+        <div class="join-info">
+          <div class="logo" style="text-align: left"><span class="home">Alone</span><span class="alone">at Christmas</span></div>
+          <p class="step">Scan the QR code or go to</p>
+          <p class="url" id="lobby-host"></p>
+          <p class="step">and enter the code</p>
+          <p class="code-digits" id="lobby-code"></p>
+          <p class="viewers"><strong id="lobby-viewers">0</strong> <span id="lobby-viewers-word">viewers</span> connected</p>
+          <div class="countdown">
+            <p id="lobby-countdown">The player is getting ready...</p>
+            <div class="bar" id="lobby-bar-wrap" hidden><div id="lobby-bar"></div></div>
+            <button class="skip-btn" id="skip">Skip countdown ⏭</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tijdens het spel -->
+      <section id="game" hidden>
+        <div class="card player-view" id="main-view">
+          <!-- Zicht van de speler: de game stuurt een paar beelden per seconde. Zonder beeld: het titelbeeld. -->
+          <img id="view-video" class="player-video" alt="What the player sees in the headset" hidden />
+          <div id="view-title">
+            <div class="logo"><span class="home">Alone</span><span class="alone">at Christmas</span><span class="vr">VR</span></div>
+            <p class="placeholder">The player's view will appear here.</p>
+          </div>
+          <div id="view-together" class="together-view overlay" hidden>
+            <p class="message">Everyone press together!</p>
+            <p class="label" id="together-label"></p>
+            <p class="count" id="together-count"></p>
+            <div class="bar"><div class="together-fill" id="together-fill"></div></div>
+          </div>
+          <div id="view-ending" class="ending-view overlay" hidden>
+            <p class="muted big-text" id="ending-number"></p>
+            <h1 id="ending-name"></h1>
+            <ul id="ending-choices"></ul>
+          </div>
+        </div>
+
+        <div class="side">
+          <div class="card vote-panel">
+            <p class="panel-title">Vote</p>
+            <div id="vote-active" hidden>
+              <div class="bar"><div id="vote-bar"></div></div>
+              <p class="question" id="vote-question"></p>
+              <p class="message" id="vote-message" hidden></p>
+              <div class="tally" id="vote-tally"></div>
+              <p class="muted" id="vote-total"></p>
+            </div>
+            <div id="vote-last" hidden>
+              <p class="muted" id="last-question"></p>
+              <h1 id="last-winner"></h1>
+              <div class="tally" id="last-tally"></div>
+            </div>
+            <p class="muted" id="vote-idle">Waiting for the first choice...</p>
+          </div>
+          <div class="card minimap">
+            <p class="panel-title">Minimap</p>
+            <p>Coming soon</p>
+          </div>
+        </div>
+
+        <div class="card footer">
+          <p class="viewers"><strong id="game-viewers">0</strong> <span id="game-viewers-word">viewers</span> connected</p>
+          <div class="join-small">
+            <span>Join at <span id="game-host"></span> with code</span>
+            <strong id="game-code"></strong>
+            <img id="game-qr" alt="" />
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Storing: de game is gecrasht of onbereikbaar, het beeld staat stil, of dit scherm heeft geen verbinding. -->
+    <div class="trouble" id="trouble" hidden>
+      <div class="trouble-card">
+        <div class="trouble-icon" aria-hidden="true">⚠</div>
+        <h1 id="trouble-title"></h1>
+        <p class="big-text" id="trouble-text"></p>
+        <p class="muted trouble-wait"><span></span><span></span><span></span></p>
+      </div>
+    </div>
+
+    <div class="status" id="status" hidden>Connecting...</div>
+    <button class="fullscreen-btn" id="fullscreen">Full screen</button>
+
+    <script src="/js/lib/signalr.min.js"></script>
+    <script src="/js/common.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const sections = ["pair", "problem", "lobby", "game"];
+      const code = codeFromPath();
+      const host = location.host;
+
+      // Pas na zoveel ms een storing tonen, zodat korte haperingen en herverbindingen niets tonen.
+      const GAME_LOST_DELAY = 3000;
+      const HUB_LOST_DELAY = 5000;
+      const VIDEO_FROZEN_AFTER = 6000;
+
+      let state = null;
+      let lobbyEndsAt = null; // lokale tijd waarop de wachttijd (60 s) om is
+      let lobbyTotal = 0; // totale wachttijd in ms, voor de balk
+      let voteEndsAt = 0;
+      let finished = false;
+      let hub = null;
+      let hubOnline = true;
+      let hubLostAt = 0;
+      let gameLostAt = 0; // 0 = game verbonden
+      let skipped = false;
+      // Geheim van de server bij het koppelen: alleen daarmee volgt dit scherm de game naar een nieuwe sessie.
+      let screenKey = "";
+      try {
+        screenKey = sessionStorage.getItem("cn-screen-key-" + code) || "";
+      } catch {}
+
+      function show(name) {
+        for (const s of sections) $(s).hidden = s !== name;
+      }
+
+      function showProblem(title, text) {
+        $("problem-title").textContent = title;
+        $("problem-text").textContent = text;
+        show("problem");
+        updateTrouble();
+      }
+
+      // Het scherm niet laten uitgaan (projectorlaptop).
+      async function keepAwake() {
+        try {
+          await navigator.wakeLock.request("screen");
+        } catch {}
+      }
+      document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && keepAwake());
+
+      $("fullscreen").onclick = () => document.documentElement.requestFullscreen().catch(() => {});
+      document.addEventListener("fullscreenchange", () => ($("fullscreen").hidden = !!document.fullscreenElement));
+
+      if (!code) {
+        // ---------- Koppelen ----------
+        show("pair");
+        const input = codeInput($("pair-code"), async (c) => {
+          input.setDisabled(true);
+          $("pair-error").textContent = "";
+          const status = await checkCode(c);
+          if (status === "active") return location.assign(`/screen/${c}`);
+          $("pair-error").textContent = CODE_ERRORS[status] || CODE_ERRORS.unknown;
+          input.setDisabled(false);
+          input.clear();
+        });
+        input.focus();
+      } else {
+        // ---------- Gekoppeld ----------
+        $("status").hidden = false;
+        $("lobby-code").textContent = prettyCode(code);
+        $("game-code").textContent = prettyCode(code);
+        $("lobby-host").textContent = host;
+        $("game-host").textContent = host;
+        $("lobby-qr").src = `/api/qr/${code}.png`;
+        $("game-qr").src = `/api/qr/${code}.png`;
+        keepAwake();
+
+        hub = startHub({
+          on: { State: render, SessionEnded: onEnded, SessionMoved: (e) => location.replace(`/screen/${e.code}`) },
+          onStatus: (online) => {
+            setStatus($("status"), online, "Connected", "Connection lost, retrying...");
+            if (online) hubOnline = true;
+            else if (hubOnline) {
+              hubOnline = false;
+              hubLostAt = Date.now();
+            }
+            updateTrouble();
+          },
+          onConnected: join,
+        });
+
+        async function join() {
+          if (finished) return;
+          let result;
+          try {
+            result = await hub.invoke("JoinAsScreen", code);
+          } catch {
+            return;
+          }
+          if (result.ok) {
+            screenKey = result.key;
+            try {
+              sessionStorage.setItem("cn-screen-key-" + code, screenKey);
+            } catch {}
+            return;
+          }
+          finished = true;
+          hub.stop();
+          $("status").hidden = true;
+          if (result.error === "ended" && screenKey) {
+            showProblem("The game stopped", "Waiting for the game to start again...");
+            followNextSession(code, "screen", "screenKey=" + encodeURIComponent(screenKey), 30);
+          } else if (result.error === "ended") showProblem("Session over", "This session has ended.");
+          else showProblem("Oops", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
+        }
+
+        // De game stopte (gestopt, gecrasht of te lang weg): alles stopt. Het einde blijft wel staan als het er al was.
+        // Start dezelfde game opnieuw, dan springt het scherm vanzelf naar de nieuwe code.
+        function onEnded() {
+          finished = true;
+          hub.stop();
+          $("status").hidden = true;
+          if (!(state && state.ending)) showProblem("The game stopped", "Waiting for the game to start again...");
+          if (screenKey) followNextSession(code, "screen", "screenKey=" + encodeURIComponent(screenKey), 30);
+        }
+
+        $("skip").onclick = async () => {
+          skipped = true;
+          tickLobby();
+          try {
+            await hub.invoke("SkipLobby");
+          } catch {
+            skipped = false; // geen verbinding: knop terug
+          }
+          tickLobby();
+        };
+      }
+
+      function plural(n, el) {
+        el.textContent = n === 1 ? "viewer" : "viewers";
+      }
+
+      function render(s) {
+        state = s;
+        if (s.gameConnected === false) gameLostAt = gameLostAt || Date.now();
+        else gameLostAt = 0;
+        updateTrouble();
+        if (s.phase === "lobby") return renderLobby(s);
+        if (s.phase === "pairing") return; // kan niet: wij zijn het scherm dat koppelt
+        renderGame(s);
+      }
+
+      function renderLobby(s) {
+        $("lobby-viewers").textContent = s.viewers;
+        plural(s.viewers, $("lobby-viewers-word"));
+        lobbyEndsAt = s.lobbyRemaining == null ? null : Date.now() + s.lobbyRemaining * 1000;
+        if (s.lobbyRemaining != null) lobbyTotal = Math.max(lobbyTotal, s.lobbyRemaining * 1000);
+        tickLobby();
+        show("lobby");
+      }
+
+      function tickLobby() {
+        if (!state || state.phase !== "lobby") return;
+        const left = lobbyEndsAt == null ? null : Math.max(0, lobbyEndsAt - Date.now());
+        $("skip").hidden = skipped || left === 0;
+        $("lobby-bar-wrap").hidden = lobbyEndsAt == null;
+        if (left == null) {
+          $("lobby-countdown").textContent = skipped ? "Starting as soon as the player is ready..." : "The player is getting ready...";
+          return;
+        }
+        $("lobby-bar").style.width = Math.min(100, (left / Math.max(1, lobbyTotal)) * 100) + "%";
+        $("lobby-countdown").textContent = left > 0 ? `The game starts in ${Math.ceil(left / 1000)} s` : "The player is almost ready...";
+      }
+
+      function renderGame(s) {
+        $("game-viewers").textContent = s.viewers;
+        plural(s.viewers, $("game-viewers-word"));
+
+        // Grote vlak: einde of samen-actie (over het spelerzicht heen), anders spelerzicht of titelbeeld
+        $("view-ending").hidden = !s.ending;
+        $("view-together").hidden = !!s.ending || !s.together.active;
+        updateMainView();
+        if (s.ending) renderEnding(s);
+        else if (s.together.active) renderTogether(s.together);
+        pollFrames();
+
+        // Stemming rechts
+        $("vote-active").hidden = !s.active;
+        $("vote-last").hidden = s.active || !s.last;
+        $("vote-idle").hidden = s.active || !!s.last;
+        if (s.active) renderVote(s.vote);
+        else if (s.last) renderLast(s.last);
+
+        show("game");
+      }
+
+      // ---------- Storing ----------
+      // Geeft [titel, tekst] of null. Volgorde: dit scherm offline, game weg, beeld bevroren.
+      function currentTrouble() {
+        if (!code || finished) return null;
+        const now = Date.now();
+        if (!hubOnline && now - hubLostAt > HUB_LOST_DELAY)
+          return ["Connection lost", "The big screen can't reach the server right now. Trying to reconnect..."];
+        if (!state || (state.phase !== "lobby" && state.phase !== "playing")) return null;
+        if (gameLostAt && now - gameLostAt > GAME_LOST_DELAY)
+          return ["Technical difficulties", "The game stopped responding. Hang tight, we're getting Kevin back on his feet..."];
+        if (state.phase === "playing" && !state.ending && hadVideo && now - lastFrameAt > VIDEO_FROZEN_AFTER)
+          return ["Technical difficulties", "We lost the picture from the headset. Hang tight..."];
+        return null;
+      }
+
+      function updateTrouble() {
+        const t = currentTrouble();
+        $("trouble").hidden = !t;
+        if (!t) return;
+        $("trouble-title").textContent = t[0];
+        $("trouble-text").textContent = t[1];
+      }
+
+      // ---------- Zicht van de speler ----------
+      // Haalt telkens het nieuwste beeld op (± 15 per seconde). Komt er 3 s niets, dan weer het titelbeeld.
+      let polling = false;
+      let lastFrameAt = 0;
+      let hadVideo = false; // ooit beeld gehad: valt het daarna weg, dan is er iets mis
+
+      function hasVideo() {
+        return Date.now() - lastFrameAt < 3000;
+      }
+
+      function updateMainView() {
+        const overlay = state && (state.ending || state.together.active);
+        $("view-video").hidden = !hasVideo();
+        $("view-title").hidden = !!overlay || hasVideo();
+      }
+
+      async function pollFrames() {
+        if (polling || !code) return;
+        polling = true;
+        const img = $("view-video");
+        while (!finished) {
+          const started = performance.now();
+          let got = false;
+          try {
+            const res = await fetch(`/api/sessions/${code}/frame.jpg`, { cache: "no-store" });
+            if (res.status === 200) {
+              const url = URL.createObjectURL(await res.blob());
+              const previous = img.src;
+              img.onload = () => previous.startsWith("blob:") && URL.revokeObjectURL(previous);
+              img.src = url;
+              lastFrameAt = Date.now();
+              hadVideo = true;
+              got = true;
+            }
+          } catch {}
+          updateMainView();
+          const wait = got ? Math.max(0, 66 - (performance.now() - started)) : 1000;
+          await new Promise((r) => setTimeout(r, wait));
+        }
+        polling = false;
+      }
+
+      function tally(el, options, winner) {
+        const total = options.reduce((n, o) => n + o.count, 0);
+        el.innerHTML = "";
+        for (const o of options) {
+          const row = document.createElement("div");
+          row.className = "tally-row" + (winner && o.id === winner ? " winner" : "");
+          const fill = document.createElement("div");
+          fill.className = "fill";
+          fill.style.width = total ? (o.count / total) * 100 + "%" : "0";
+          const label = document.createElement("span");
+          label.textContent = o.label;
+          const count = document.createElement("span");
+          count.textContent = o.count;
+          row.append(fill, label, count);
+          el.appendChild(row);
+        }
+      }
+
+      function renderVote(v) {
+        voteEndsAt = Date.now() + v.remaining * 1000;
+        $("vote-question").textContent = v.question;
+        $("vote-message").textContent = v.message;
+        $("vote-message").hidden = !v.message;
+        tally($("vote-tally"), v.options);
+        $("vote-total").textContent = `${v.total} of ${state.viewers} voted`;
+      }
+
+      function renderLast(r) {
+        $("last-question").textContent = r.question;
+        $("last-winner").textContent = r.winner ? winnerLabel(r) : "Tie: Kevin decides";
+        tally($("last-tally"), r.options, r.winner);
+      }
+
+      function renderTogether(t) {
+        $("together-label").textContent = t.label;
+        $("together-count").textContent = `${t.presses} of ${t.needed} pressed...`;
+        $("together-fill").style.width = (t.presses / Math.max(1, t.needed)) * 100 + "%";
+      }
+
+      function renderEnding(s) {
+        $("ending-number").textContent = `Ending ${ENDING_ORDER.indexOf(s.ending) + 1} of 3`;
+        $("ending-name").textContent = ENDING_NAMES[s.ending];
+        $("ending-choices").innerHTML = "";
+        for (const r of s.history) {
+          const li = document.createElement("li");
+          li.textContent = r.winner ? winnerLabel(r) + (r.decidedBy === "kevin" ? " (Kevin decided)" : "") : "Kevin decided";
+          $("ending-choices").appendChild(li);
+        }
+      }
+
+      setInterval(() => {
+        tickLobby();
+        updateTrouble();
+        if (state && state.active) {
+          const left = Math.max(0, voteEndsAt - Date.now());
+          $("vote-bar").style.width = (left / (state.vote.seconds * 1000)) * 100 + "%";
+        }
+      }, 100);
+    </script>
+  </body>
+</html>

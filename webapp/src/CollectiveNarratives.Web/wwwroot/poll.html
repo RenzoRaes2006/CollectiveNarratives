@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Alone at Christmas VR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="snow"></div>
+    <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <main>
+      <div class="logo">
+        <span class="home">Alone</span>
+        <span class="alone">at Christmas</span>
+        <span class="vr">VR</span>
+      </div>
+      <div class="status" id="status">Connecting...</div>
+
+      <!-- Wachten tussen keuzes (en in de wachtkamer) -->
+      <section id="wait" class="center">
+        <h1>You are fate</h1>
+        <p>Kevin can't hear you, so feel free to talk out loud.</p>
+        <p class="muted" id="wait-text">Waiting for the next choice...</p>
+      </section>
+
+      <!-- Stemmen -->
+      <section id="vote" hidden>
+        <div class="bar"><div id="vote-bar"></div></div>
+        <p class="question" id="vote-question"></p>
+        <p class="message" id="vote-message" hidden></p>
+        <div class="options" id="vote-options"></div>
+        <p class="muted" id="vote-hint">Tap a choice. You can still change your mind.</p>
+      </section>
+
+      <!-- Uitslag -->
+      <section id="result" class="center" hidden>
+        <p class="muted">Fate has decided</p>
+        <h1 id="result-text"></h1>
+        <p class="muted">Waiting for the next choice...</p>
+      </section>
+
+      <!-- Samen-actie -->
+      <section id="together" class="center" hidden>
+        <p class="message">Everyone press together!</p>
+        <button class="big-button" id="together-button"></button>
+        <p id="together-count" class="muted"></p>
+      </section>
+
+      <!-- Einde -->
+      <section id="ending" hidden>
+        <p class="muted" id="ending-number"></p>
+        <h1 id="ending-name"></h1>
+        <div class="card">
+          <p class="muted">Your choices</p>
+          <ul id="ending-choices"></ul>
+        </div>
+        <p class="muted">Thanks for playing!</p>
+      </section>
+
+      <!-- Onbekende of afgelopen code -->
+      <section id="problem" class="center" hidden>
+        <h1 id="problem-title"></h1>
+        <p id="problem-text"></p>
+        <p><a href="/">Enter a different code</a></p>
+      </section>
+    </main>
+
+    <script src="/js/lib/signalr.min.js"></script>
+    <script src="/js/common.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const sections = ["wait", "vote", "result", "together", "ending", "problem"];
+      const code = codeFromPath();
+
+      let state = null;
+      let shownVoteId = 0;
+      let myChoice = null;
+      let voteEndsAt = 0;
+      let togetherWasActive = false;
+      let afterTogether = false; // samen-actie net afgelopen: toon die uitkomst i.p.v. de vorige stemming
+      let pressed = false;
+      let finished = false; // sessie voorbij: niet meer opnieuw verbinden
+
+      function show(name) {
+        for (const s of sections) $(s).hidden = s !== name;
+      }
+
+      function showProblem(title, text) {
+        $("problem-title").textContent = title;
+        $("problem-text").textContent = text;
+        $("status").hidden = true;
+        show("problem");
+      }
+
+      const hub = startHub({
+        // SessionMoved: de game crashte midden in het spel en startte opnieuw. Alleen wie meedeed krijgt dit.
+        on: { State: render, SessionEnded: onEnded, SessionMoved: (e) => location.replace(`/poll/${e.code}`) },
+        onStatus: (online) => setStatus($("status"), online, "Connected", "Connection lost, retrying..."),
+        onConnected: join,
+      });
+
+      async function join() {
+        if (finished) return;
+        let result;
+        try {
+          result = await hub.invoke("JoinAsPhone", code, getClientId());
+        } catch {
+          return; // verbinding weer weg: onreconnected probeert opnieuw
+        }
+        if (result.ok) return;
+        if (result.error === "notReady") {
+          $("wait-text").textContent = CODE_ERRORS.notReady;
+          setTimeout(join, 3000);
+        } else if (result.error === "ended") {
+          onEnded();
+        } else {
+          finished = true;
+          hub.stop();
+          showProblem("Oops", CODE_ERRORS[result.error] || CODE_ERRORS.unknown);
+        }
+      }
+
+      // Sessie voorbij: het einde blijft staan, anders een melding.
+      function onEnded() {
+        if (finished) return;
+        finished = true;
+        hub.stop();
+        $("status").hidden = true;
+        if (state && state.ending) return; // spel uitgespeeld: een volgende ronde is voor nieuwe kijkers
+        // Gestopt midden in het spel: start de game snel opnieuw, dan doe je vanzelf weer mee.
+        followNextSession(code, "poll", "clientId=" + encodeURIComponent(getClientId()), 5);
+        showProblem("Session over", "The game has stopped. If it restarts in the next few minutes, you'll rejoin automatically.");
+      }
+
+      function render(s) {
+        state = s;
+
+        if (s.ending) return renderEnding(s);
+        if (s.together.active) return renderTogether(s);
+        if (s.active) {
+          afterTogether = false;
+          return renderVote(s.vote);
+        }
+        if (togetherWasActive) afterTogether = true;
+        togetherWasActive = false;
+        if (afterTogether) {
+          $("result-text").textContent = s.lastTogether.success ? "You did it!" : "So close...";
+          return show("result");
+        }
+        if (s.last) {
+          $("result-text").textContent = s.last.winner ? winnerLabel(s.last) : "Tie: Kevin decides";
+          return show("result");
+        }
+        $("wait-text").textContent = s.phase === "lobby" ? "The game is about to start..." : "Waiting for the next choice...";
+        show("wait");
+      }
+
+      function renderVote(vote) {
+        if (vote.voteId !== shownVoteId) {
+          // Nieuwe stemming: knoppen opnieuw opbouwen.
+          shownVoteId = vote.voteId;
+          myChoice = null;
+          voteEndsAt = Date.now() + vote.remaining * 1000;
+          $("vote-question").textContent = vote.question;
+          $("vote-message").textContent = vote.message;
+          $("vote-message").hidden = !vote.message;
+          $("vote-options").innerHTML = "";
+          for (const o of vote.options) {
+            const b = document.createElement("button");
+            b.className = "option";
+            b.innerHTML = "<span></span>";
+            b.firstChild.textContent = o.label;
+            b.dataset.id = o.id;
+            b.onclick = () => {
+              myChoice = o.id;
+              hub.send("CastVote", vote.voteId, o.id);
+              updateSelection();
+            };
+            $("vote-options").appendChild(b);
+          }
+        }
+        updateSelection();
+        show("vote");
+      }
+
+      function updateSelection() {
+        for (const b of $("vote-options").children) b.classList.toggle("selected", b.dataset.id === myChoice);
+        $("vote-options").classList.toggle("has-choice", !!myChoice);
+      }
+
+      function renderTogether(s) {
+        const t = s.together;
+        if (!togetherWasActive) {
+          togetherWasActive = true;
+          pressed = false;
+        }
+        $("together-button").textContent = t.label;
+        $("together-button").classList.toggle("pressed", pressed);
+        $("together-count").textContent = `${t.presses} of ${t.needed} pressed...`;
+        show("together");
+      }
+
+      $("together-button").onclick = () => {
+        pressed = true;
+        $("together-button").classList.add("pressed");
+        hub.send("Press");
+        if (navigator.vibrate) navigator.vibrate(50);
+      };
+
+      function renderEnding(s) {
+        $("ending-number").textContent = `Ending ${ENDING_ORDER.indexOf(s.ending) + 1} of 3`;
+        $("ending-name").textContent = ENDING_NAMES[s.ending];
+        $("ending-choices").innerHTML = "";
+        for (const r of s.history) {
+          const li = document.createElement("li");
+          li.textContent = r.winner ? winnerLabel(r) + (r.decidedBy === "kevin" ? " (Kevin decided)" : "") : "Kevin decided";
+          $("ending-choices").appendChild(li);
+        }
+        show("ending");
+      }
+
+      // Aftelbalk soepel laten lopen tussen de updates door.
+      setInterval(() => {
+        if (state && state.active) {
+          const left = Math.max(0, voteEndsAt - Date.now());
+          $("vote-bar").style.width = (left / (state.vote.seconds * 1000)) * 100 + "%";
+        }
+      }, 100);
+    </script>
+  </body>
+</html>

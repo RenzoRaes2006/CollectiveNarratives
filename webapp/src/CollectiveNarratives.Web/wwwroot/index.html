@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Alone at Christmas VR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@400;800&display=swap" />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="snow"></div>
+    <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <main>
+      <div class="logo">
+        <span class="home">Alone</span>
+        <span class="alone">at Christmas</span>
+        <span class="vr">VR</span>
+      </div>
+
+      <section class="center">
+        <h1>Join in</h1>
+        <p>Enter the code shown on the big screen.</p>
+        <div id="code"></div>
+        <p class="error" id="error"></p>
+      </section>
+    </main>
+
+    <script src="/js/common.js"></script>
+    <script>
+      const error = document.getElementById("error");
+      const input = codeInput(document.getElementById("code"), async (code) => {
+        input.setDisabled(true);
+        error.textContent = "";
+        const status = await checkCode(code);
+        if (status === "active") return location.assign(`/poll/${code}`);
+        error.textContent = CODE_ERRORS[status] || CODE_ERRORS.unknown;
+        input.setDisabled(false);
+        input.clear();
+      });
+      input.focus();
+    </script>
+  </body>
+</html>

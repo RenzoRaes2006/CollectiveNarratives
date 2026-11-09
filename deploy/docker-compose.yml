@@ -1,0 +1,36 @@
+# Draait op de VPS in /opt/collective-narratives/. De pipeline (.github/workflows/web.yml) zet dit bestand
+# daar neer. Geheimen staan in /opt/collective-narratives/.env (niet in git):
+#   GAME_KEY=<lange willekeurige sleutel, dezelfde als in Unity: Resources/GameKey.txt>
+#   IMAGE_TAG=<commit-sha die nu live staat, zet de pipeline zelf>
+#   TUNNEL_TOKEN=<token van de Cloudflare Tunnel, uit het Cloudflare-dashboard>
+services:
+  web:
+    image: ghcr.io/renzoraes2006/collectivenarratives-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      GAME_KEY: ${GAME_KEY:?GAME_KEY ontbreekt in .env}
+      PUBLIC_URL: https://collective-narratives.app
+    # Geen "ports": de app is alleen via de tunnel bereikbaar (daarom vertrouwt hij de X-Forwarded-headers).
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Cloudflare Tunnel: bouwt zelf een uitgaande verbinding naar Cloudflare, dus geen open poorten op de VPS.
+  # Https (certificaat) regelt Cloudflare. In het dashboard wijst de hostname naar http://web:8080.
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.3
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?TUNNEL_TOKEN ontbreekt in .env}
+    depends_on:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
