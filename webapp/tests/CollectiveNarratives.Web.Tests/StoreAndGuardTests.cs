@@ -70,6 +70,72 @@ public class SessionStoreTests
 
         Assert.Equal(CodeStatus.Ended, _store.Status(s.Code));
     }
+
+    [Fact]
+    public async Task Crashed_game_restart_moves_screen_and_players_but_tells_no_one_else()
+    {
+        var old = await _store.Start("https://x", "game-1", "quest-a");
+        var screen = await old.JoinScreen("screen-1");
+        await old.JoinPhone("phone-conn", "phone-1");
+        await old.Leave("game-1"); // crash midden in het spel
+
+        var fresh = await _store.Start("https://x", "game-2", "quest-a");
+
+        Assert.Equal(CodeStatus.Ended, _store.Status(old.Code));
+        Assert.Equal((old.Code, fresh.Code, true), Assert.Single(_events.Moves));
+        Assert.Equal(fresh.Code, _store.NextCodeForScreen(old.Code, screen.Key));
+        Assert.Equal(fresh.Code, _store.NextCodeForPhone(old.Code, "phone-1"));
+        // Wie alleen de oude code kent (of een verkeerde sleutel heeft), krijgt niets.
+        Assert.Null(_store.NextCodeForScreen(old.Code, "raden"));
+        Assert.Null(_store.NextCodeForPhone(old.Code, "iemand-anders"));
+    }
+
+    [Fact]
+    public async Task After_a_finished_game_only_the_big_screen_follows_to_the_next_round()
+    {
+        var old = await _store.Start("https://x", "game-1", "quest-a");
+        var screen = await old.JoinScreen("screen-1");
+        await old.JoinPhone("phone-conn", "phone-1");
+        await old.SetEnding("held");
+
+        var fresh = await _store.Start("https://x", "game-2", "quest-a");
+
+        Assert.False(Assert.Single(_events.Moves).PhonesToo);
+        Assert.Equal(fresh.Code, _store.NextCodeForScreen(old.Code, screen.Key));
+        Assert.Null(_store.NextCodeForPhone(old.Code, "phone-1"));
+    }
+
+    [Fact]
+    public async Task Phones_only_follow_a_quick_restart_and_screens_follow_several_restarts()
+    {
+        var a = await _store.Start("https://x", "g1", "quest-a");
+        var screen = await a.JoinScreen("screen-1");
+        await a.JoinPhone("phone-conn", "phone-1");
+        await _store.End(a); // game netjes gestopt
+
+        _time.Advance(SessionStore.PhoneFollowWindow + TimeSpan.FromMinutes(1));
+        var b = await _store.Start("https://x", "g2", "quest-a");
+        var c = await _store.Start("https://x", "g3", "quest-a");
+        var other = await _store.Start("https://x", "g4", "quest-b");
+
+        Assert.Null(_store.NextCodeForPhone(a.Code, "phone-1")); // te laat: misschien al een nieuwe groep
+        Assert.Equal(c.Code, _store.NextCodeForScreen(a.Code, screen.Key));
+        Assert.NotEqual(other.Code, c.Code);
+    }
+
+    [Fact]
+    public async Task Long_stopped_game_does_not_pull_old_screens_along()
+    {
+        var a = await _store.Start("https://x", "g1", "quest-a");
+        var screen = await a.JoinScreen("screen-1");
+        await _store.End(a);
+
+        _time.Advance(SessionStore.FollowWindow + TimeSpan.FromMinutes(1));
+        await _store.Cleanup();
+        await _store.Start("https://x", "g2", "quest-a");
+
+        Assert.Null(_store.NextCodeForScreen(a.Code, screen.Key));
+    }
 }
 
 public class JoinGuardTests

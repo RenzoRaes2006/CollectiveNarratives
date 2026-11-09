@@ -9,7 +9,7 @@ namespace CollectiveNarratives.Web;
 
 public static class WebApp
 {
-    // Een beeld van 640×360 in JPEG is ongeveer 30–60 KB.
+    // Een beeld van 1280×720 in JPEG is ongeveer 80–150 KB.
     public const int MaxFrameBytes = 300 * 1024;
 
     // configure: voor de tests (bv. een nep-klok of andere instellingen).
@@ -26,7 +26,14 @@ public static class WebApp
         services.AddSingleton<PublicUrl>();
         services.AddSingleton<GameKey>();
         services.AddHostedService<SessionCleanupService>();
-        services.AddSignalR(o => o.AddFilter<SessionExceptionFilter>());
+        services.AddSignalR(o =>
+        {
+            o.AddFilter<SessionExceptionFilter>();
+            // Een gecrashte game (of telefoon) snel opmerken: iedereen pingt elke 5 s, na 15 s stilte is de verbinding weg.
+            // Achter Cloudflare komt een afgebroken verbinding anders pas na de standaard 30 s door.
+            o.KeepAliveInterval = TimeSpan.FromSeconds(5);
+            o.ClientTimeoutInterval = TimeSpan.FromSeconds(15);
+        });
 
         // Achter de Cloudflare Tunnel: https en het echte IP van de bezoeker (voor JoinGuard) komen uit de X-Forwarded-headers.
         // Alle proxies vertrouwen mag, want de container is alleen via de tunnel bereikbaar (geen poort open naar buiten).
@@ -89,6 +96,19 @@ public static class WebApp
                     guard.RecordFailure(ip);
                     return Results.Json(new { status = JoinErrors.Unknown }, statusCode: 404);
             }
+        });
+
+        // Startte dezelfde game na deze sessie een nieuwe? Alleen met bewijs dat je erbij hoorde:
+        // ?screenKey= (geheim dat het grote scherm bij het koppelen kreeg) of ?clientId= (telefoon die meedeed).
+        // Raden heeft geen zin (sleutel van 24 willekeurige bytes, clientId moet in de oude sessie gezeten hebben), dus geen
+        // JoinGuard: veel telefoons achter hetzelfde wifi-IP mogen elkaar niet blokkeren terwijl ze wachten.
+        app.MapGet("/api/sessions/{code}/next", (string code, string? screenKey, string? clientId, HttpContext http, SessionStore store) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            string? next = !string.IsNullOrEmpty(screenKey) ? store.NextCodeForScreen(code, screenKey)
+                : !string.IsNullOrEmpty(clientId) ? store.NextCodeForPhone(code, clientId)
+                : null;
+            return next is not null ? Results.Json(new { next }) : Results.NoContent(); // 204: (nog) niets, later opnieuw proberen
         });
 
         // QR naar de telefoonpagina van deze sessie.

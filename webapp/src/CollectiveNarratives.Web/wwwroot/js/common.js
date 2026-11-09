@@ -25,13 +25,14 @@ function codeFromPath() {
 // opts.on: { State: fn, SessionEnded: fn, ... }
 // opts.onConnected(conn): na elke (her)verbinding, bv. om opnieuw te joinen.
 // opts.onStatus(online): voor het bolletje "Verbonden".
-// opts.accessToken: alleen voor de game (hostpagina).
+// opts.accessToken: alleen voor de game (hostpagina). opts.query: extra querystring, bv. "device=...".
 function startHub(opts) {
   const builder = new signalR.HubConnectionBuilder()
-    .withUrl("/hubs/session", opts.accessToken ? { accessTokenFactory: () => opts.accessToken } : {})
+    .withUrl("/hubs/session" + (opts.query ? "?" + opts.query : ""), opts.accessToken ? { accessTokenFactory: () => opts.accessToken } : {})
     .withAutomaticReconnect({ nextRetryDelayInMilliseconds: () => 2000 })
     .configureLogging(signalR.LogLevel.Warning);
   const conn = builder.build();
+  conn.keepAliveIntervalInMilliseconds = 5000; // de server verbreekt na 15 s stilte
   let stopped = false;
 
   for (const [name, fn] of Object.entries(opts.on || {})) conn.on(name, fn);
@@ -89,7 +90,7 @@ function codeInput(container, onComplete) {
   input.type = "text";
   input.inputMode = "numeric";
   input.autocomplete = "one-time-code";
-  input.setAttribute("aria-label", "Code van 6 cijfers");
+  input.setAttribute("aria-label", "6-digit code");
   container.appendChild(input);
 
   function render() {
@@ -125,6 +126,21 @@ function codeInput(container, onComplete) {
   };
 }
 
+// Na het einde blijven kijken of dezelfde game opnieuw start; dan meteen naar die sessie.
+// proof: "screenKey=..." (groot scherm) of "clientId=..." (telefoon). Zonder bewijs geeft de server niets prijs.
+// minutes: zo lang blijven proberen.
+function followNextSession(code, page, proof, minutes) {
+  const until = Date.now() + minutes * 60 * 1000;
+  const check = async () => {
+    try {
+      const res = await fetch(`/api/sessions/${code}/next?${proof}`, { cache: "no-store" });
+      if (res.status === 200) return location.replace(`/${page}/${(await res.json()).next}`);
+    } catch {}
+    if (Date.now() < until) setTimeout(check, 2000);
+  };
+  check();
+}
+
 // Bestaat de code? Geeft "active", "ended", "unknown", "invalid" of "rateLimited".
 async function checkCode(code) {
   try {
@@ -136,12 +152,12 @@ async function checkCode(code) {
 }
 
 const CODE_ERRORS = {
-  unknown: "Deze code bestaat niet. Kijk nog eens goed.",
-  invalid: "Een code heeft 6 cijfers.",
-  ended: "Deze sessie is afgelopen.",
-  rateLimited: "Te veel foute codes. Wacht even en probeer het opnieuw.",
-  notReady: "Het spel is nog niet klaar. Even geduld...",
-  offline: "Geen verbinding met de server.",
+  unknown: "This code doesn't exist. Take another look.",
+  invalid: "A code has 6 digits.",
+  ended: "This session has ended.",
+  rateLimited: "Too many wrong codes. Wait a moment and try again.",
+  notReady: "The game isn't ready yet. Hang on...",
+  offline: "No connection to the server.",
 };
 
 // 365895 -> "365 895", leesbaarder op een groot scherm.
@@ -150,9 +166,9 @@ function prettyCode(code) {
 }
 
 const ENDING_NAMES = {
-  held: "De held van de straat",
-  weg: "Net op tijd weg",
-  cadeau: "Het cadeau is weg",
+  held: "Hero of the neighbourhood",
+  weg: "Out just in time",
+  cadeau: "The present is gone",
 };
 const ENDING_ORDER = ["held", "weg", "cadeau"];
 

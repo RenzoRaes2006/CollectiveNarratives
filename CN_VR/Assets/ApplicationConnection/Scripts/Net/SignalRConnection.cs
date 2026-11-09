@@ -21,8 +21,9 @@ namespace CollectiveNarratives.Net
     public sealed class SignalRConnection : IDisposable
     {
         const byte RecordSeparator = 0x1E;
-        static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(15);
-        static readonly TimeSpan ServerTimeout = TimeSpan.FromSeconds(30); // server pingt elke 15 s
+        // Vaak pingen: crasht de game, dan merkt de server dat binnen ~15 s (en toont het grote scherm een storing).
+        static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(5);
+        static readonly TimeSpan ServerTimeout = TimeSpan.FromSeconds(30); // server pingt elke 5 s
 
         readonly ClientWebSocket _socket = new ClientWebSocket();
         readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
@@ -59,8 +60,8 @@ namespace CollectiveNarratives.Net
             var done = await Task.WhenAny(_handshake.Task, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
             if (done != _handshake.Task)
             {
-                Close("Geen antwoord op de handshake");
-                throw new TimeoutException("SignalR: geen antwoord op de handshake");
+                Close("No response to the handshake");
+                throw new TimeoutException("SignalR: no response to the handshake");
             }
             await _handshake.Task.ConfigureAwait(false); // gooit de fout van de server door
             _ = Task.Run(PingLoop);
@@ -70,7 +71,7 @@ namespace CollectiveNarratives.Net
         // rawArgs zijn al JSON: gebruik MiniJson.Quote voor tekst, MiniJson.Number voor getallen, JsonUtility.ToJson voor objecten.
         public async Task<string> InvokeAsync(string method, params string[] rawArgs)
         {
-            if (!IsConnected) throw new SignalRException("Niet verbonden");
+            if (!IsConnected) throw new SignalRException("Not connected");
             string id = Interlocked.Increment(ref _invocationId).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pending[id] = tcs;
@@ -90,7 +91,7 @@ namespace CollectiveNarratives.Net
             if (done != tcs.Task)
             {
                 _pending.TryRemove(id, out _);
-                throw new TimeoutException("SignalR: geen antwoord op " + method);
+                throw new TimeoutException("SignalR: no response to " + method);
             }
             return await tcs.Task.ConfigureAwait(false);
         }
@@ -155,7 +156,7 @@ namespace CollectiveNarratives.Net
                     var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        Close("De server heeft de verbinding gesloten");
+                        Close("The server closed the connection");
                         return;
                     }
                     Interlocked.Exchange(ref _lastReceivedTicks, DateTime.UtcNow.Ticks);
@@ -187,7 +188,7 @@ namespace CollectiveNarratives.Net
                 catch (Exception e) when (!(e is OperationCanceledException))
                 {
                     // Eén kapot bericht (of een fout in een handler) mag de verbinding niet stoppen.
-                    System.Diagnostics.Debug.WriteLine("SignalR: bericht overgeslagen: " + e.Message);
+                    System.Diagnostics.Debug.WriteLine("SignalR: skipped message: " + e.Message);
                 }
             }
             int rest = length - start;
@@ -233,7 +234,7 @@ namespace CollectiveNarratives.Net
                     break;
 
                 case 7: // server sluit
-                    Close(msg.TryGetValue("error", out raw) ? MiniJson.ReadString(raw) : "De server heeft de verbinding gesloten");
+                    Close(msg.TryGetValue("error", out raw) ? MiniJson.ReadString(raw) : "The server closed the connection");
                     break;
 
                 // 6 = ping: niets te doen, _lastReceivedTicks is al bijgewerkt.
@@ -249,7 +250,7 @@ namespace CollectiveNarratives.Net
                     await Task.Delay(PingInterval, _cts.Token).ConfigureAwait(false);
                     if (DateTime.UtcNow - new DateTime(Interlocked.Read(ref _lastReceivedTicks), DateTimeKind.Utc) > ServerTimeout)
                     {
-                        Close("De server antwoordt niet meer");
+                        Close("The server stopped responding");
                         return;
                     }
                     await SendRecordAsync("{\"type\":6}").ConfigureAwait(false);
@@ -265,11 +266,11 @@ namespace CollectiveNarratives.Net
         {
             if (Interlocked.Exchange(ref _closed, 1) == 1) return;
             _cts.Cancel();
-            _handshake.TrySetException(new SignalRException(error ?? "Verbinding gesloten"));
+            _handshake.TrySetException(new SignalRException(error ?? "Connection closed"));
             foreach (var id in _pending.Keys)
             {
                 TaskCompletionSource<string> tcs;
-                if (_pending.TryRemove(id, out tcs)) tcs.TrySetException(new SignalRException("Verbinding verbroken"));
+                if (_pending.TryRemove(id, out tcs)) tcs.TrySetException(new SignalRException("Connection lost"));
             }
             try { _socket.Abort(); } catch { }
             var closed = Closed;

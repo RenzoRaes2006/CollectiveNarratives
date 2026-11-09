@@ -35,6 +35,14 @@ public sealed class RecordingEvents : ISessionEvents
         EndedCount++;
         return Task.CompletedTask;
     }
+
+    public List<(string Code, string Next, bool PhonesToo)> Moves { get; } = [];
+
+    public Task Moved(string code, string nextCode, bool phonesToo)
+    {
+        Moves.Add((code, nextCode, phonesToo));
+        return Task.CompletedTask;
+    }
 }
 
 public static class Make

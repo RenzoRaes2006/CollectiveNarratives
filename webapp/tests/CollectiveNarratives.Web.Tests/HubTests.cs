@@ -71,7 +71,71 @@ public class HubTests : IAsyncLifetime
         Assert.Equal(voteId, result.VoteId);
         Assert.Equal("rinkelen", result.Winner);
         Assert.Equal("publiek", result.DecidedBy);
-        lock (phoneStates) Assert.Contains(phoneStates, s => s.Active && s.Vote!.Question.StartsWith("De telefoon gaat"));
+        lock (phoneStates) Assert.Contains(phoneStates, s => s.Active && s.Vote!.Question.StartsWith("The phone is ringing"));
+    }
+
+    [Fact]
+    public async Task Big_screen_can_skip_the_lobby_and_screen_sees_when_the_game_drops()
+    {
+        var game = await _server.Connect(TestServer.GameKey);
+        var skipped = new TaskCompletionSource<LobbySkippedEvent>();
+        game.On<LobbySkippedEvent>("LobbySkipped", e => skipped.TrySetResult(e));
+        var session = await game.InvokeAsync<CreateSessionResult>("CreateSession");
+
+        await using var screen = await _server.Connect();
+        var gameGone = new TaskCompletionSource<SessionState>();
+        screen.On<SessionState>("State", s => { if (!s.GameConnected) gameGone.TrySetResult(s); });
+        await screen.InvokeAsync<JoinResult>("JoinAsScreen", session.Code);
+        await game.InvokeAsync("StartTutorial", 60);
+
+        // Een telefoon mag niet overslaan, het grote scherm wel.
+        await using var phone = await _server.Connect();
+        await phone.InvokeAsync<JoinResult>("JoinAsPhone", session.Code, "phone-1");
+        await phone.InvokeAsync("SkipLobby");
+        Assert.False(skipped.Task.IsCompleted);
+        await screen.InvokeAsync("SkipLobby");
+        Assert.Equal(1, (await skipped.Task.Within()).Viewers);
+
+        // Game crasht: het scherm krijgt een state met GameConnected = false.
+        await game.DisposeAsync();
+        Assert.Equal("lobby", (await gameGone.Task.Within()).Phase);
+    }
+
+    [Fact]
+    public async Task Restarted_game_moves_the_screen_but_the_old_code_reveals_nothing()
+    {
+        async Task<HubConnection> Game() =>
+            await ConnectTo(_server.HubUrl + "?device=quest-a", TestServer.GameKey);
+
+        var game = await Game();
+        var old = await game.InvokeAsync<CreateSessionResult>("CreateSession");
+        await using var screen = await _server.Connect();
+        var moved = new TaskCompletionSource<SessionMovedEvent>();
+        screen.On<SessionMovedEvent>("SessionMoved", e => moved.TrySetResult(e));
+        var joined = await screen.InvokeAsync<JoinResult>("JoinAsScreen", old.Code);
+        Assert.False(string.IsNullOrEmpty(joined.Key));
+
+        await game.DisposeAsync(); // crash
+        await using var restarted = await Game();
+        var fresh = await restarted.InvokeAsync<CreateSessionResult>("CreateSession");
+
+        Assert.Equal(fresh.Code, (await moved.Task.Within()).Code);
+        // Publiek: alleen "ended", geen nieuwe code. Met de schermsleutel wel.
+        var status = await _server.Http.GetStringAsync($"/api/sessions/{old.Code}").ContinueWith(t => t.IsFaulted ? "" : t.Result);
+        Assert.DoesNotContain(fresh.Code, status);
+        Assert.Equal(HttpStatusCode.NoContent, (await _server.Http.GetAsync($"/api/sessions/{old.Code}/next?screenKey=raden")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _server.Http.GetAsync($"/api/sessions/{old.Code}/next?clientId=onbekend")).StatusCode);
+        var next = await _server.Http.GetFromJsonAsync<NextResponse>($"/api/sessions/{old.Code}/next?screenKey={Uri.EscapeDataString(joined.Key)}");
+        Assert.Equal(fresh.Code, next!.Next);
+    }
+
+    sealed record NextResponse(string Next);
+
+    static async Task<HubConnection> ConnectTo(string url, string accessToken)
+    {
+        var conn = new HubConnectionBuilder().WithUrl(url, o => o.AccessTokenProvider = () => Task.FromResult<string?>(accessToken)).Build();
+        await conn.StartAsync();
+        return conn;
     }
 
     [Fact]
@@ -156,11 +220,11 @@ public class HubTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("/", "Vul de code in")]
-    [InlineData("/poll/365895", "Jullie zijn het lot")]
-    [InlineData("/screen", "Koppel het grote scherm")]
-    [InlineData("/screen/365895", "Koppel het grote scherm")]
-    [InlineData("/host", "NEP-GAME")]
+    [InlineData("/", "Enter the code")]
+    [InlineData("/poll/365895", "You are fate")]
+    [InlineData("/screen", "Pair the big screen")]
+    [InlineData("/screen/365895", "Pair the big screen")]
+    [InlineData("/host", "FAKE GAME")]
     public async Task Pages_are_served(string path, string text)
     {
         var html = await _server.Http.GetStringAsync(path);
