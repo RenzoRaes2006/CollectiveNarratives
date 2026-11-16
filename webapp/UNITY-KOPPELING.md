@@ -22,8 +22,8 @@ Dit document is de afspraak tussen de website (map `webapp/`) en het Unity-proje
 
 1. **Start:** de game verbindt met de game key en roept `CreateSession()` aan. Antwoord: een code van 6 cijfers. De game toont die in de bril.
 2. **Koppelen:** iemand opent op de projectorlaptop `collective-narratives.app/screen` en typt de code. De game krijgt `ScreenPaired`.
-3. **Tutorial en wachtkamer:** de game roept `StartTutorial(60)` aan en start de tutorial. Het grote scherm toont de QR, de code, het aantal kijkers en een aftelling. Telefoons joinen.
-4. **Spel start:** zodra de tutorial klaar is **en** er minstens 60 s voorbij zijn, roept de game `StartGame()` aan. De 60 s houdt de game zelf bij; de server gebruikt ze alleen voor de aftelling op het scherm. Met de knop **Skip countdown** op het grote scherm (of A/X in de bril) krijgt de game `LobbySkipped` en wacht ze niet langer.
+3. **Tutorial en wachtkamer:** de game roept `StartTutorial()` aan en start de tutorial (`tutorial_scene`: kijken, lopen, wijzen, grip). Het grote scherm toont de QR, de code, het aantal kijkers en "The player is learning the controls…". Telefoons joinen. Er is geen timer.
+4. **Spel start:** de speler drukt op **Begin** aan het einde van de tutorial. De game roept `StartGame()` aan en laadt `demo_city_night`; de sessie blijft verbonden.
 5. **Spel:** `StartVote`, `StartTogether`, `SetEnding` zoals voorheen.
 6. **Einde:** `EndSession()`. De code werkt meteen niet meer. Telefoons houden hun eindscherm.
 
@@ -70,12 +70,14 @@ In `CN_VR/Assets/ApplicationConnection/` (scene `Assets/Scenes/ApplicationConnec
 
 | Bestand | Wat |
 |---|---|
-| `Scripts/SessionClient.cs` | De koppeling. Coroutines: `StartSession`, `StartTutorial`, `SkipLobby`, `StartGame`, `RunVote`, `Decide`, `StartTogether`, `SetEnding`, `EndSession`. Eigenschappen: `Code`, `ScreenPaired`, `Viewers`, `LobbySkipped`, `LiveVote`, `Connected`, `LastError`. Verbindt zelf opnieuw en hervat de sessie. |
+| `Scripts/SessionClient.cs` | De koppeling. Coroutines: `StartSession`, `StartTutorial`, `StartGame`, `RunVote`, `Decide`, `StartTogether`, `SetEnding`, `EndSession`. Eigenschappen: `Code`, `ScreenPaired`, `Viewers`, `LiveVote`, `Connected`, `LastError`. Verbindt zelf opnieuw en hervat de sessie. |
 | `Scripts/Net/SignalRConnection.cs` | Kleine SignalR-client (JSON over WebSockets), zonder packages. Getest vanuit `webapp/tests`. |
 | `Scripts/Net/MiniJson.cs` | Haalt SignalR-berichten uit elkaar; de inhoud gaat daarna naar `JsonUtility`. |
 | `Scripts/ServerConfig.cs` + `Resources/ServerConfig.asset` | Serveradres en game key. In de Editor `http://localhost:5000`, in een build `https://collective-narratives.app`. |
-| `Scripts/Tutorial.cs` | Plek voor de tutorial. Nu leeg (meteen klaar). |
-| `Scripts/ApplicationConnection.cs` | Test-flow: code in de bril → koppelen → tutorial + 60 s → teststemming "telefoon". Paneel in de bril dat je blik volgt, debug-info linksboven op de pc. |
+| `Scripts/Tutorial.cs` | Basis voor de tutorial: meteen klaar (testscene). |
+| `Scripts/StreetTutorial.cs` | De tutorial in `tutorial_scene`: rondkijken, lopen naar bord 2, wijzen naar de box (blauw), grip (groen), Begin. In de Editor: N = volgende stap. |
+| `Scripts/TutorialSign.cs`, `ColorOnInteract.cs`, `GripHint.cs` | Vast bord op straat, box die van kleur wisselt, gele GRIP-aanduiding op de controllers. |
+| `Scripts/ApplicationConnection.cs` | Flow: code (op het bord of het paneel dat je blik volgt) → koppelen → tutorial → `StartGame` → `nextScene` laden (of, leeg, teststemming "telefoon"). Debug-info linksboven op de pc. |
 | `Scripts/PlayerViewStreamer.cs` | Zicht van de speler naar het grote scherm: extra camera, 1280×720 met 4× MSAA, 15 beelden per seconde als JPEG. Zet `streamEnabled` uit als de Quest het niet trekt. |
 | `Scripts/XRRigSetup.cs` | Hoofdtracking in de Quest voor een scene zonder XR-rig (maakt er zelf een XR Origin bij). In de Editor zonder bril doet hij niets. |
 
@@ -84,7 +86,7 @@ In `CN_VR/Assets/ApplicationConnection/` (scene `Assets/Scenes/ApplicationConnec
 | Wat | In de bril (controllers) | In de Editor |
 |---|---|---|
 | Zonder groot scherm spelen | A/X, verschijnt na 2 minuten op het codescherm | S |
-| Wachttijd (60 s) overslaan | A/X tijdens het wachten, of de knop op het grote scherm | K |
+| Volgende tutorialstap (`tutorial_scene`) | – | N |
 | Kevin beslist bij gelijkspel | Naar de telefoon kijken + trigger = opnemen. 8 s niets doen = laten rinkelen | 1 = opnemen, 2 = laten rinkelen |
 | Opnieuw (nieuwe code) | A/X op het uitslagscherm | R |
 
@@ -99,10 +101,9 @@ yield return session.StartSession();                    // Code staat klaar
 toonInBril(session.Code);
 yield return new WaitUntil(() => session.ScreenPaired);
 
-float start = Time.unscaledTime;
-yield return session.StartTutorial(60);
-yield return tutorial.Speel();                           // eigen code
-yield return new WaitUntil(() => Time.unscaledTime - start >= 60 || session.LobbySkipped);
+yield return session.StartTutorial();
+tutorial.Begin();
+yield return new WaitUntil(() => tutorial.IsDone);      // speler drukt Begin
 yield return session.StartGame();
 
 VoteResult uitslag = null;
@@ -130,8 +131,7 @@ De game verbindt met de game key als `access_token` (querystring bij WebSockets,
 |---|---|---|
 | `CreateSession()` | `{ code, gameToken, joinUrl, screenUrl }` | Bewaar `gameToken` voor `ResumeSession`. |
 | `ResumeSession(code, gameToken)` | `bool` | Na een verbroken verbinding, binnen 2 minuten. `false`: sessie vervallen, maak een nieuwe. |
-| `StartTutorial(seconds)` | – | Na `ScreenPaired`. Het scherm toont de aftelling. Fout als er nog geen scherm gekoppeld is. |
-| `SkipLobby()` | – | Wachttijd overslaan (zoals de knop op het grote scherm). De game krijgt `LobbySkipped` terug. |
+| `StartTutorial()` | – | Na `ScreenPaired`. Fout als er nog geen scherm gekoppeld is. |
 | `StartGame()` | – | Einde wachtkamer. |
 | `StartVote(id, question, options, seconds, message)` | `voteId` (int) | Zie hieronder. Een nieuwe stemming rondt een lopende eerst af. |
 | `StopVote()` | uitslag of `null` | Meteen tellen (normaal niet nodig). |
@@ -159,7 +159,6 @@ Fouten (onbekende keuze, sessie afgelopen, ...) komen terug als foutmelding op d
 |---|---|
 | `ScreenPaired` | `{ screens }`. Het grote scherm is gekoppeld: door naar de tutorial. Kan vaker komen (tweede scherm). |
 | `ViewersChanged` | `{ viewers }` |
-| `LobbySkipped` | `{ viewers }`. De wachttijd is overgeslagen: start zodra de tutorial klaar is. |
 | `VoteTally` | De lopende stemming: `{ voteId, id, question, message, seconds, remaining, total, options: [{ id, label, count }] }` |
 | `VoteEnded` | `{ voteId, id, question, winner, decidedBy, total, options }`. **`winner == ""`: gelijkspel of niemand stemde, Kevin beslist.** `decidedBy` is `publiek` of `kevin`. |
 | `TogetherEnded` | `{ attempt, success, presses, needed }`. Gelukt als iedereen binnen de tijd drukte. |
@@ -173,7 +172,6 @@ Fouten (onbekende keuze, sessie afgelopen, ...) komen terug als foutmelding op d
 | Telefoon | `CastVote(voteId, option)` | – (de laatste druk telt) |
 | Telefoon | `Press()` | – |
 | Groot scherm | `JoinAsScreen(code)` | `{ ok, error }`. Het eerste scherm koppelt de sessie. |
-| Groot scherm | `SkipLobby()` | – (knop "Skip countdown") |
 
 `error`: `invalid` (geen 6 cijfers), `unknown`, `ended`, `notReady` (telefoon vóór de koppeling) of `rateLimited` (te veel foute codes vanaf hetzelfde IP: 20 per minuut).
 `clientId` is een vaste id per telefoon (localStorage): opnieuw verbinden geeft geen extra kijker of dubbele stem.
@@ -185,7 +183,6 @@ Fouten (onbekende keuze, sessie afgelopen, ...) komen terug als foutmelding op d
   "code": "365895",
   "joinUrl": "https://collective-narratives.app/poll/365895",
   "phase": "lobby",
-  "lobbyRemaining": 42.5,
   "screens": 1,
   "viewers": 5,
   "active": true,
@@ -199,7 +196,7 @@ Fouten (onbekende keuze, sessie afgelopen, ...) komen terug als foutmelding op d
 }
 ```
 
-`phase`: `pairing` → `lobby` → `playing` → `ended`. `lobbyRemaining` (seconden) is `null` tot `StartTutorial`. `gameConnected` is `false` zolang de game weg is (crash of verbinding kwijt). De rest heeft dezelfde vorm als `/api/state` van de oude Node-server.
+`phase`: `pairing` → `lobby` → `playing` → `ended`. `gameConnected` is `false` zolang de game weg is (crash of verbinding kwijt). De rest heeft dezelfde vorm als `/api/state` van de oude Node-server.
 
 ## HTTP
 
