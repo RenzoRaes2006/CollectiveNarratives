@@ -1,3 +1,4 @@
+using Unity.XR.CoreUtils;
 using UnityEngine;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -50,11 +51,23 @@ public class StreetTutorial : Tutorial
     public override void ResetTutorial()
     {
         IsDone = false;
+        bool started = step != Step.Idle;
         step = Step.Idle;
+        if (sign1 != null) sign1.gameObject.SetActive(true); // de nieuwe code komt hier
         if (station2 != null) station2.SetActive(false);
         if (box != null) box.ResetBox();
         if (beginButton != null) { beginButton.ResetBox(); beginButton.gameObject.SetActive(false); }
         ShowGripHints(false);
+        if (started) MovePlayerToStart();
+    }
+
+    // Sessie kwijt midden in de tutorial: speler terug naar de start, voor bord 1 met de nieuwe code.
+    void MovePlayerToStart()
+    {
+        var origin = FindFirstObjectByType<XROrigin>();
+        if (origin == null || transform.parent == null) return;
+        origin.transform.SetPositionAndRotation(transform.parent.position, transform.parent.rotation);
+        Physics.SyncTransforms();
     }
 
     void Go(Step next)
@@ -73,6 +86,7 @@ public class StreetTutorial : Tutorial
             case Step.Point:
                 sign1.Show("", "", "");
                 sign1.gameObject.SetActive(false); // de speler staat nu bij bord 2
+                box.ResetBox(); // wijzen van ver tijdens het lopen telt niet
                 sign2.Show("Point at the box", "", "Aim your hand at the box.");
                 break;
             case Step.Grip:

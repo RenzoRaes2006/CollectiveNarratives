@@ -10,7 +10,11 @@ public class ServerConfig : ScriptableObject
     [Tooltip("In de Unity Editor: de lokale server (webapp/: docker compose up --build, of dotnet run)")]
     public string editorServerUrl = "http://localhost:5000";
 
+    [Tooltip("Standaard voor iedereen. Eigen keuze per pc: menu Collective Narratives > Use local server (overschrijft dit)")]
     public bool useEditorServerInEditor = true;
+
+    // Eigen keuze van deze pc (EditorPrefs, niet in git). -1 = niet gekozen, volg useEditorServerInEditor.
+    public const string LocalServerPref = "CN.UseLocalServer";
 
     [Tooltip("Sleutel waarmee de game sessies mag aanmaken. Lokaal: dev-game-key. " +
              "De echte sleutel NIET hier invullen (dit asset staat in git): zet hem in Resources/GameKey.txt, dat staat in .gitignore.")]
@@ -21,7 +25,8 @@ public class ServerConfig : ScriptableObject
         get
         {
 #if UNITY_EDITOR
-            return useEditorServerInEditor;
+            int choice = UnityEditor.EditorPrefs.GetInt(LocalServerPref, -1);
+            return choice < 0 ? useEditorServerInEditor : choice == 1;
 #else
             return false;
 #endif
