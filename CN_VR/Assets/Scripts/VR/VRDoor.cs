@@ -24,6 +24,38 @@ public class VRDoor : MonoBehaviour
     private float handAngleAtGrab;
     private float currentOffset;
     private bool subscribed;
+    private bool locked;
+    private bool swinging;
+    private float swingTarget;
+    private float swingSpeed = 90f;
+
+    /// <summary>Op slot: de klinken reageren niet (gebruikt door de game loop).</summary>
+    public bool Locked
+    {
+        get => locked;
+        set
+        {
+            locked = value;
+            foreach (var h in handles)
+                if (h != null) h.enabled = !value;
+            if (value)
+            {
+                grabbingInteractor = null;
+                activeHandle = null;
+            }
+        }
+    }
+
+    /// <summary>Huidige openingshoek in graden (0 = dicht).</summary>
+    public float OpenAngle => currentOffset;
+
+    /// <summary>Laat de deur vanzelf naar een hoek zwaaien (bv. de achterdeur die openvliegt).</summary>
+    public void SwingTo(float angle, float degreesPerSecond = 90f)
+    {
+        swingTarget = Mathf.Clamp(angle, -maxOpenAngle, maxOpenAngle);
+        swingSpeed = Mathf.Max(1f, degreesPerSecond);
+        swinging = true;
+    }
 
     private void Awake()
     {
@@ -74,6 +106,8 @@ public class VRDoor : MonoBehaviour
 
     private void OnGrab(SelectEnterEventArgs args)
     {
+        if (locked) return;
+        swinging = false;
         grabbingInteractor = args.interactorObject;
         activeHandle = args.interactableObject as XRSimpleInteractable;
         yawAtGrab = currentOffset;
@@ -91,12 +125,24 @@ public class VRDoor : MonoBehaviour
 
     private void Update()
     {
+        if (swinging)
+        {
+            currentOffset = Mathf.MoveTowards(currentOffset, swingTarget, swingSpeed * Time.deltaTime);
+            if (Mathf.Approximately(currentOffset, swingTarget)) swinging = false;
+            ApplyAngle();
+            return;
+        }
+
         if (grabbingInteractor == null || activeHandle == null)
             return;
 
         float delta = Mathf.DeltaAngle(handAngleAtGrab, HandAngle());
         currentOffset = Mathf.Clamp(yawAtGrab + delta, -maxOpenAngle, maxOpenAngle);
+        ApplyAngle();
+    }
 
+    private void ApplyAngle()
+    {
         Vector3 euler = transform.localEulerAngles;
         euler.y = closedYaw + currentOffset;
         transform.localEulerAngles = euler;

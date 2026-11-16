@@ -180,6 +180,9 @@ public class SessionClient : MonoBehaviour
         onResult(_results.TryGetValue(voteId, out var result) ? result : null);
     }
 
+    // Stemming meteen afsluiten (bv. Kevin legt het briefje neer). RunVote krijgt dan de uitslag via VoteEnded.
+    public IEnumerator StopVote() => Call("StopVote", null);
+
     // Kevin koos zelf: zo kloppen de keuzes op de telefoons aan het einde.
     public IEnumerator Decide(int voteId, string option) => Call("Decide", null, MiniJson.Number(voteId), MiniJson.Quote(option));
 
