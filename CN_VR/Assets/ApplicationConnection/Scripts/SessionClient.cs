@@ -15,7 +15,6 @@ using UnityEngine;
 [Serializable] public class SessionInfo { public string code; public string gameToken; public string joinUrl; public string screenUrl; }
 [Serializable] public class ScreenPairedEvent { public int screens; }
 [Serializable] public class ViewersChangedEvent { public int viewers; }
-[Serializable] public class LobbySkippedEvent { public int viewers; }
 
 // Praat via SignalR met de website (webapp/). Vervangt de oude VoteClient (HTTP-polling).
 // - StartSession() maakt een sessie: Code staat dan klaar om in de bril te tonen.
@@ -38,7 +37,6 @@ public class SessionClient : MonoBehaviour
     public bool ScreenPaired { get; private set; }
     public int Screens { get; private set; }
     public int Viewers { get; private set; }
-    public bool LobbySkipped { get; private set; } // wachttijd overgeslagen (knop op het grote scherm)
     public Vote LiveVote { get; private set; } // tellingen tijdens een stemming, anders null
     public TogetherResult LastTogether { get; private set; }
     public bool SessionLost { get; private set; } // sessie vervallen of door de server beëindigd: opnieuw beginnen
@@ -129,15 +127,8 @@ public class SessionClient : MonoBehaviour
         Log($"Session {Session.code} created. Big screen: {ServerUrl}/screen");
     }
 
-    // Wachtkamer begint: het grote scherm toont de aftelling.
-    public IEnumerator StartTutorial(int seconds) => Call("StartTutorial", null, MiniJson.Number(seconds));
-
-    // Wachttijd overslaan vanuit de game. Het grote scherm stopt dan ook met aftellen.
-    public IEnumerator SkipLobby()
-    {
-        LobbySkipped = true;
-        return Call("SkipLobby", null);
-    }
+    // Wachtkamer begint: de speler doet de tutorial, het publiek joint. Geen timer.
+    public IEnumerator StartTutorial() => Call("StartTutorial", null);
 
     // Einde wachtkamer: tutorial klaar en minstens de wachttijd voorbij (of overgeslagen).
     public IEnumerator StartGame() => Call("StartGame", null);
@@ -285,9 +276,6 @@ public class SessionClient : MonoBehaviour
                 _results[result.voteId] = result;
                 if (LiveVote != null && LiveVote.voteId == result.voteId) LiveVote = null;
                 break;
-            case "LobbySkipped":
-                LobbySkipped = true;
-                break;
             case "TogetherEnded":
                 LastTogether = JsonUtility.FromJson<TogetherResult>(arg);
                 break;
@@ -307,7 +295,6 @@ public class SessionClient : MonoBehaviour
         ScreenPaired = false;
         Screens = 0;
         Viewers = 0;
-        LobbySkipped = false;
         LiveVote = null;
         LastTogether = null;
         SessionLost = false;

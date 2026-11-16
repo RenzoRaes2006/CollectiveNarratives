@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Networking;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 // Fase 5a: het zicht van de speler op het grote scherm.
 // Een extra camera volgt het hoofd (iets afgevlakt, minder schokkerig voor het publiek) en rendert op 720p met 4x MSAA,
@@ -38,6 +39,18 @@ public class PlayerViewStreamer : MonoBehaviour
     void Awake()
     {
         if (sessionClient == null) sessionClient = FindFirstObjectByType<SessionClient>();
+    }
+
+    void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
+    void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
+
+    // Na een scenewissel (de sessie gaat mee) de instellingen van de nieuwe hoofdcamera overnemen, zoals skybox en culling.
+    void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        var main = Camera.main;
+        if (_cam == null || main == null) return;
+        _cam.CopyFrom(main);
+        ApplyStreamSettings();
     }
 
     void OnDestroy()
@@ -83,11 +96,15 @@ public class PlayerViewStreamer : MonoBehaviour
         go.transform.SetParent(transform, false);
         _cam = go.AddComponent<Camera>();
         _cam.CopyFrom(main);
+        ApplyStreamSettings();
+    }
+
+    void ApplyStreamSettings()
+    {
         _cam.stereoTargetEye = StereoTargetEyeMask.None; // gewone camera, niet voor de bril
         _cam.targetTexture = _rt;
         _cam.fieldOfView = fieldOfView;
         _cam.enabled = false;
-        _cam.transform.SetPositionAndRotation(main.transform.position, main.transform.rotation);
     }
 
     IEnumerator CaptureAndSend()
