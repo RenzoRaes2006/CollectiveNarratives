@@ -179,7 +179,7 @@ public static class TutorialSceneBuilder
         if (controller == null) { Debug.LogWarning("[Tutorial] " + controllerName + " niet gevonden in de rig."); return null; }
         var go = new GameObject("GRIP-aanduiding");
         go.transform.SetParent(controller, false);
-        go.transform.localPosition = new Vector3(-side * 0.022f, -0.02f, 0.005f); // binnenkant handvat, onder de middelvinger
+        go.transform.localPosition = new Vector3(-side * 0.02f, -0.03f, -0.07f); // binnenkant handvat, onder de middelvinger (getest in de bril)
         var hint = go.AddComponent<GripHint>();
         hint.labelOffset = new Vector3(-side * 0.07f, 0.02f, 0f);
         return hint;
