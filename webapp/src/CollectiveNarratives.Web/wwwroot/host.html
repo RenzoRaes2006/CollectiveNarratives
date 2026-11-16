@@ -71,7 +71,7 @@
         </div>
         <label class="row" style="margin-top: 8px">
           <input type="checkbox" id="auto" checked style="flex: 0 0 auto" />
-          <span>Automatic like the game: <code>StartTutorial(60)</code> after pairing and <code>StartGame()</code> after 60 s (or when the big screen skips)</span>
+          <span>Automatic like the game: <code>StartTutorial()</code> after pairing. Press <code>StartGame()</code> yourself, like the player pressing Begin</span>
         </label>
         <p class="status" id="status" style="text-align: left; margin-top: 8px">Not connected</p>
       </div>
@@ -89,9 +89,8 @@
           <span>Send a fake player view (moving test image, 8 per second)</span>
         </label>
         <div class="row" style="margin-top: 8px">
-          <button id="tutorial">StartTutorial(60)</button>
+          <button id="tutorial">StartTutorial()</button>
           <button id="start-game">StartGame()</button>
-          <span class="muted" id="lobby-timer"></span>
         </div>
       </div>
 
@@ -135,11 +134,7 @@
       const $ = (id) => document.getElementById(id);
       let hub = null;
       let session = null;
-      let lobbyStartedAt = 0;
       let tutorialStarted = false;
-      let gameStarted = false;
-      let lobbySkipped = false;
-      const LOBBY_SECONDS = 60;
 
       try {
         $("key").value = localStorage.getItem("cn-game-key") || "dev-game-key";
@@ -167,7 +162,7 @@
       $("create").onclick = async () => {
         if (hub) await hub.stop();
         session = null;
-        tutorialStarted = gameStarted = lobbySkipped = false;
+        tutorialStarted = false;
         try {
           localStorage.setItem("cn-game-key", $("key").value);
         } catch {}
@@ -182,10 +177,6 @@
               if ($("auto").checked && !tutorialStarted) startTutorial();
             },
             ViewersChanged: (e) => log(`← ViewersChanged ${JSON.stringify(e)}`),
-            LobbySkipped: (e) => {
-              log(`← LobbySkipped ${JSON.stringify(e)}`);
-              lobbySkipped = true;
-            },
             VoteTally: (v) => log(`← VoteTally ${v.options.map((o) => `${o.id}:${o.count}`).join(" ")}`),
             VoteEnded: (r) => {
               log(`← VoteEnded ${JSON.stringify(r)}`);
@@ -218,24 +209,11 @@
 
       async function startTutorial() {
         tutorialStarted = true;
-        lobbyStartedAt = Date.now();
-        await call("StartTutorial", LOBBY_SECONDS);
+        await call("StartTutorial");
       }
 
       $("tutorial").onclick = startTutorial;
-      $("start-game").onclick = async () => {
-        gameStarted = true;
-        await call("StartGame");
-      };
-
-      // De game wacht tot de tutorial klaar is EN er minstens 60 s voorbij zijn (of het grote scherm sloeg dat over).
-      // De nep-tutorial is meteen klaar.
-      setInterval(() => {
-        if (!tutorialStarted || gameStarted) return ($("lobby-timer").textContent = "");
-        const left = lobbySkipped ? 0 : Math.ceil(LOBBY_SECONDS - (Date.now() - lobbyStartedAt) / 1000);
-        $("lobby-timer").textContent = left > 0 ? `${left} s left` : "";
-        if (left <= 0 && $("auto").checked) $("start-game").onclick();
-      }, 250);
+      $("start-game").onclick = () => call("StartGame");
 
       fetch("/api/choices")
         .then((r) => r.json())

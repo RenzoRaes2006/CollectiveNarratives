@@ -41,69 +41,20 @@ public class SessionTests
     {
         var s = Make.Session(_time, _events);
 
-        await Assert.ThrowsAsync<SessionException>(() => s.StartTutorial(60));
+        await Assert.ThrowsAsync<SessionException>(() => s.StartTutorial());
     }
 
     [Fact]
-    public async Task Lobby_counts_down_from_StartTutorial()
+    public async Task StartTutorial_keeps_the_lobby_open_until_StartGame()
     {
         var s = await Make.PairedSession(_time, _events);
-        Assert.Null(s.GetState().LobbyRemaining); // speler maakt zich klaar
 
-        await s.StartTutorial(60);
-        _time.Advance(TimeSpan.FromSeconds(20));
+        await s.StartTutorial();
+        _time.Advance(TimeSpan.FromMinutes(10)); // geen timer: de speler beslist met Begin
 
-        Assert.Equal(40, s.GetState().LobbyRemaining!.Value, precision: 3);
-        _time.Advance(TimeSpan.FromSeconds(50));
-        Assert.Equal(0, s.GetState().LobbyRemaining); // nooit negatief: "de speler is bijna klaar"
-    }
-
-    [Fact]
-    public async Task StartGame_ends_the_lobby()
-    {
-        var s = await Make.PairedSession(_time, _events);
-        await s.StartTutorial(60);
-
+        Assert.Equal("lobby", s.GetState().Phase);
         await s.StartGame();
-
-        var state = s.GetState();
-        Assert.Equal("playing", state.Phase);
-        Assert.Null(state.LobbyRemaining);
-    }
-
-    [Fact]
-    public async Task SkipLobby_ends_the_countdown_and_tells_the_game_once()
-    {
-        var s = await Make.PairedSession(_time, _events);
-        await s.StartTutorial(60);
-
-        await s.SkipLobby();
-        await s.SkipLobby();
-
-        Assert.Equal(0, s.GetState().LobbyRemaining);
-        Assert.Single(_events.Game<LobbySkippedEvent>("LobbySkipped"));
-    }
-
-    [Fact]
-    public async Task SkipLobby_before_the_tutorial_still_skips_the_wait()
-    {
-        var s = await Make.PairedSession(_time, _events);
-
-        await s.SkipLobby();
-        await s.StartTutorial(60);
-
-        Assert.Equal(0, s.GetState().LobbyRemaining);
-    }
-
-    [Fact]
-    public async Task SkipLobby_does_nothing_once_the_game_runs()
-    {
-        var s = await Make.PairedSession(_time, _events);
-        await s.StartGame();
-
-        await s.SkipLobby();
-
-        Assert.Empty(_events.Game<LobbySkippedEvent>("LobbySkipped"));
+        Assert.Equal("playing", s.GetState().Phase);
     }
 
     // ---------- Kijkers ----------

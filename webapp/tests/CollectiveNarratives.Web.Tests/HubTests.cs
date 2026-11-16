@@ -48,15 +48,13 @@ public class HubTests : IAsyncLifetime
         // Groot scherm typt de code: gekoppeld.
         await using var screen = await _server.Connect();
         var screenState = new TaskCompletionSource<SessionState>();
-        screen.On<SessionState>("State", s => { if (s.LobbyRemaining is not null) screenState.TrySetResult(s); });
+        screen.On<SessionState>("State", s => { if (s.Phase == "lobby") screenState.TrySetResult(s); });
         Assert.True((await screen.InvokeAsync<JoinResult>("JoinAsScreen", session.Code)).Ok);
         Assert.Equal(1, (await paired.Task.Within()).Screens);
 
-        // Tutorial + wachtkamer: het scherm krijgt de aftelling.
-        await game.InvokeAsync("StartTutorial", 60);
-        var lobby = await screenState.Task.Within();
-        Assert.Equal("lobby", lobby.Phase);
-        Assert.InRange(lobby.LobbyRemaining!.Value, 55, 60);
+        // Tutorial + wachtkamer: blijft open tot de speler op Begin drukt.
+        await game.InvokeAsync("StartTutorial");
+        Assert.Equal("lobby", (await screenState.Task.Within()).Phase);
 
         // Telefoon joint nu wel.
         Assert.True((await phone.InvokeAsync<JoinResult>("JoinAsPhone", session.Code, "phone-1")).Ok);
@@ -75,26 +73,16 @@ public class HubTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Big_screen_can_skip_the_lobby_and_screen_sees_when_the_game_drops()
+    public async Task Screen_sees_when_the_game_drops()
     {
         var game = await _server.Connect(TestServer.GameKey);
-        var skipped = new TaskCompletionSource<LobbySkippedEvent>();
-        game.On<LobbySkippedEvent>("LobbySkipped", e => skipped.TrySetResult(e));
         var session = await game.InvokeAsync<CreateSessionResult>("CreateSession");
 
         await using var screen = await _server.Connect();
         var gameGone = new TaskCompletionSource<SessionState>();
         screen.On<SessionState>("State", s => { if (!s.GameConnected) gameGone.TrySetResult(s); });
         await screen.InvokeAsync<JoinResult>("JoinAsScreen", session.Code);
-        await game.InvokeAsync("StartTutorial", 60);
-
-        // Een telefoon mag niet overslaan, het grote scherm wel.
-        await using var phone = await _server.Connect();
-        await phone.InvokeAsync<JoinResult>("JoinAsPhone", session.Code, "phone-1");
-        await phone.InvokeAsync("SkipLobby");
-        Assert.False(skipped.Task.IsCompleted);
-        await screen.InvokeAsync("SkipLobby");
-        Assert.Equal(1, (await skipped.Task.Within()).Viewers);
+        await game.InvokeAsync("StartTutorial");
 
         // Game crasht: het scherm krijgt een state met GameConnected = false.
         await game.DisposeAsync();

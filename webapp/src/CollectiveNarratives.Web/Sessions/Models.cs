@@ -44,12 +44,11 @@ public sealed record TogetherView(bool Active, string Label, int Seconds, int Re
 
 public sealed record TogetherResult(int Attempt, bool Success, int Presses, int Needed);
 
-// Zelfde vorm als /api/state van de oude Node-server, plus code, joinUrl, phase, lobbyRemaining en screens.
+// Zelfde vorm als /api/state van de oude Node-server, plus code, joinUrl, phase en screens.
 public sealed record SessionState(
     string Code,
     string JoinUrl,
     string Phase,
-    double? LobbyRemaining,
     int Screens,
     int Viewers,
     bool Active,
@@ -82,7 +81,5 @@ public static class JoinErrors
 public sealed record ScreenPairedEvent(int Screens);
 
 public sealed record ViewersChangedEvent(int Viewers);
-
-public sealed record LobbySkippedEvent(int Viewers);
 
 public sealed record SessionMovedEvent(string Code);
