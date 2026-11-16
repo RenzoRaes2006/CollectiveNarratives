@@ -141,12 +141,6 @@ body.screen {
   font-size: 1.6rem;
 }
 
-.countdown .bar {
-  margin-top: 1vh;
-  height: 1.4vh;
-  max-width: 34vw;
-}
-
 /* ---------- Tijdens het spel ---------- */
 
 #game {
@@ -380,29 +374,6 @@ body.screen {
 }
 
 .player-view .overlay[hidden] {
-  display: none;
-}
-
-/* ---------- Wachttijd overslaan ---------- */
-
-.skip-btn {
-  margin-top: 1.5vh;
-  padding: 0.6vh 1vw;
-  border-radius: 0.6vw;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--panel-border);
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.skip-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
-  color: var(--text);
-}
-
-.skip-btn[hidden] {
   display: none;
 }
 

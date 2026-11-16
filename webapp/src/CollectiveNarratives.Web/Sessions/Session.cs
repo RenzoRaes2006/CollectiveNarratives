@@ -42,8 +42,6 @@ public sealed class Session
     DateTimeOffset? _gameLostAt;
 
     SessionPhase _phase = SessionPhase.Pairing;
-    DateTimeOffset? _lobbyEndsAt;
-    bool _lobbySkipped;
 
     ActiveVote? _vote;
     VoteResult? _last;
@@ -217,35 +215,15 @@ public sealed class Session
 
     // ---------- Wachtkamer ----------
 
-    public async Task StartTutorial(int seconds)
+    // De speler start de tutorial. Geen timer: de wachtkamer blijft open tot StartGame (knop Begin in de bril).
+    public Task StartTutorial()
     {
-        var fx = new List<Func<Task>>();
         lock (_lock)
         {
             ThrowIfEnded();
             if (_phase == SessionPhase.Pairing) throw new SessionException("No big screen has been paired yet.");
-            if (_phase != SessionPhase.Lobby) return;
-            _lobbyEndsAt = _time.GetUtcNow().AddSeconds(_lobbySkipped ? 0 : Math.Clamp(seconds, 1, 600));
-            AddState(fx);
         }
-        await Run(fx);
-    }
-
-    // Wachttijd overslaan (knop op het grote scherm). De game krijgt LobbySkipped en start zodra de tutorial klaar is.
-    public async Task SkipLobby()
-    {
-        var fx = new List<Func<Task>>();
-        lock (_lock)
-        {
-            if (_phase != SessionPhase.Lobby || _lobbySkipped) return;
-            _lobbySkipped = true;
-            if (_lobbyEndsAt is not null) _lobbyEndsAt = _time.GetUtcNow();
-            var e = new LobbySkippedEvent(ViewerCount());
-            fx.Add(() => _events.ToGame(Code, "LobbySkipped", e));
-            AddState(fx);
-        }
-        _log.LogInformation("Sessie {Code}: wachttijd overgeslagen", Code);
-        await Run(fx);
+        return Task.CompletedTask;
     }
 
     public async Task StartGame()
@@ -255,7 +233,6 @@ public sealed class Session
         {
             ThrowIfEnded();
             _phase = SessionPhase.Playing;
-            _lobbyEndsAt = null;
             AddState(fx);
         }
         _log.LogInformation("Sessie {Code}: spel gestart", Code);
@@ -287,8 +264,7 @@ public sealed class Session
             if (_phase != SessionPhase.Playing)
             {
                 _phase = SessionPhase.Playing;
-                _lobbyEndsAt = null;
-            }
+                }
             voteId = ++_voteCounter;
             _vote = new ActiveVote
             {
@@ -510,7 +486,6 @@ public sealed class Session
             _together?.Timer.Dispose();
             _together = null;
             _phase = SessionPhase.Ended;
-            _lobbyEndsAt = null;
             AddState(fx);
             fx.Add(() => _events.Ended(Code));
         }
@@ -575,12 +550,10 @@ public sealed class Session
 
     SessionState BuildState()
     {
-        double? lobbyRemaining = _lobbyEndsAt is { } end ? Math.Max(0, (end - _time.GetUtcNow()).TotalSeconds) : null;
         return new SessionState(
             Code,
             JoinUrl,
             _phase.ToString().ToLowerInvariant(),
-            lobbyRemaining,
             _screens.Count,
             ViewerCount(),
             _vote is not null,

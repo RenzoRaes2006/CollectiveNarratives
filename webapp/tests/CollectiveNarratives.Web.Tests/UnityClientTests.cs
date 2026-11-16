@@ -38,7 +38,7 @@ public class UnityClientTests : IAsyncLifetime
         await screen.InvokeAsync<JoinResult>("JoinAsScreen", code);
         await gotPaired.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        await unity.InvokeAsync("StartTutorial", MiniJson.Number(60));
+        await unity.InvokeAsync("StartTutorial");
         await unity.InvokeAsync("StartGame");
 
         // Eigen vraag met tekens die ge-escaped moeten worden.

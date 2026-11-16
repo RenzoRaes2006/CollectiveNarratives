@@ -40,9 +40,7 @@
           <p class="code-digits" id="lobby-code"></p>
           <p class="viewers"><strong id="lobby-viewers">0</strong> <span id="lobby-viewers-word">viewers</span> connected</p>
           <div class="countdown">
-            <p id="lobby-countdown">The player is getting ready...</p>
-            <div class="bar" id="lobby-bar-wrap" hidden><div id="lobby-bar"></div></div>
-            <button class="skip-btn" id="skip">Skip countdown ⏭</button>
+            <p id="lobby-countdown">The player is learning the controls…</p>
           </div>
         </div>
       </section>
@@ -130,15 +128,12 @@
       const VIDEO_FROZEN_AFTER = 6000;
 
       let state = null;
-      let lobbyEndsAt = null; // lokale tijd waarop de wachttijd (60 s) om is
-      let lobbyTotal = 0; // totale wachttijd in ms, voor de balk
       let voteEndsAt = 0;
       let finished = false;
       let hub = null;
       let hubOnline = true;
       let hubLostAt = 0;
       let gameLostAt = 0; // 0 = game verbonden
-      let skipped = false;
       // Geheim van de server bij het koppelen: alleen daarmee volgt dit scherm de game naar een nieuwe sessie.
       let screenKey = "";
       try {
@@ -239,17 +234,6 @@
           if (!(state && state.ending)) showProblem("The game stopped", "Waiting for the game to start again...");
           if (screenKey) followNextSession(code, "screen", "screenKey=" + encodeURIComponent(screenKey), 30);
         }
-
-        $("skip").onclick = async () => {
-          skipped = true;
-          tickLobby();
-          try {
-            await hub.invoke("SkipLobby");
-          } catch {
-            skipped = false; // geen verbinding: knop terug
-          }
-          tickLobby();
-        };
       }
 
       function plural(n, el) {
@@ -269,23 +253,7 @@
       function renderLobby(s) {
         $("lobby-viewers").textContent = s.viewers;
         plural(s.viewers, $("lobby-viewers-word"));
-        lobbyEndsAt = s.lobbyRemaining == null ? null : Date.now() + s.lobbyRemaining * 1000;
-        if (s.lobbyRemaining != null) lobbyTotal = Math.max(lobbyTotal, s.lobbyRemaining * 1000);
-        tickLobby();
         show("lobby");
-      }
-
-      function tickLobby() {
-        if (!state || state.phase !== "lobby") return;
-        const left = lobbyEndsAt == null ? null : Math.max(0, lobbyEndsAt - Date.now());
-        $("skip").hidden = skipped || left === 0;
-        $("lobby-bar-wrap").hidden = lobbyEndsAt == null;
-        if (left == null) {
-          $("lobby-countdown").textContent = skipped ? "Starting as soon as the player is ready..." : "The player is getting ready...";
-          return;
-        }
-        $("lobby-bar").style.width = Math.min(100, (left / Math.max(1, lobbyTotal)) * 100) + "%";
-        $("lobby-countdown").textContent = left > 0 ? `The game starts in ${Math.ceil(left / 1000)} s` : "The player is almost ready...";
       }
 
       function renderGame(s) {
@@ -426,7 +394,6 @@
       }
 
       setInterval(() => {
-        tickLobby();
         updateTrouble();
         if (state && state.active) {
           const left = Math.max(0, voteEndsAt - Date.now());

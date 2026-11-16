@@ -93,7 +93,7 @@ public sealed class SessionHub(SessionStore store, JoinGuard guard, PublicUrl pu
         return true;
     }
 
-    public Task StartTutorial(int seconds) => GameSession().StartTutorial(seconds);
+    public Task StartTutorial() => GameSession().StartTutorial();
 
     public Task StartGame() => GameSession().StartGame();
 
@@ -129,12 +129,6 @@ public sealed class SessionHub(SessionStore store, JoinGuard guard, PublicUrl pu
         }
         SetRole("screen", code);
         return result;
-    }
-
-    // Knop "Skip countdown" op het grote scherm (of A in de bril). Telefoons mogen dit niet.
-    public async Task SkipLobby()
-    {
-        if ((Current("screen") ?? Current("game")) is { } session) await session.SkipLobby();
     }
 
     // ---------- Telefoon ----------

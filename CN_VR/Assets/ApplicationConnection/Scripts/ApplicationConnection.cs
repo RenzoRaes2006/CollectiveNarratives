@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
 #if ENABLE_INPUT_SYSTEM
@@ -11,14 +12,14 @@ using UnityEngine.InputSystem.UI;
 // Test-scene voor de koppeling website <-> Unity. Nog geen verhaal, alleen de koppeling:
 // 1. Verbinden en een sessie maken: de code van 6 cijfers staat in de bril.
 // 2. Wachten tot het grote scherm de code invult op <site>/screen (ScreenPaired).
-// 3. Tutorial (nu leeg) en minstens 60 s wachten, zodat het publiek kan joinen. Dan StartGame.
-//    De wachttijd kan overgeslagen worden met de knop "Skip countdown" op het grote scherm (LobbySkipped).
-// 4. Teststemming: de telefoon gaat, het publiek stemt, de uitslag komt hier binnen.
-// In de bril: één paneel in de wereld dat je blik volgt (code, wachten, uitslag). Op de pc: een debug-overlay.
+// 3. Tutorial: het publiek joint ondertussen. Is de tutorial klaar (in tutorial_scene: de speler drukt Begin), dan StartGame.
+// 4. nextScene leeg: teststemming (de telefoon gaat, het publiek stemt, de uitslag komt hier binnen).
+//    nextScene ingevuld: de sessie (SessionClient + PlayerViewStreamer) blijft bestaan en die scene laadt.
+// In de bril: de tekst staat op het bord van de tutorial (tutorial.Sign), of anders op één paneel dat je blik volgt.
+// Op de pc: een debug-overlay.
 // Het zicht van de speler gaat naar het grote scherm (PlayerViewStreamer). In de Quest zorgt XRRigSetup voor hoofdtracking.
 // Bediening:            bril (controllers)                          Editor (toetsen)
 //   zonder groot scherm  A/X, zichtbaar na 2 minuten op het codescherm   S
-//   wachttijd overslaan  A/X tijdens het wachten (of knop op /screen)    K
 //   Kevin beslist        naar de telefoon kijken + trigger = opnemen,    1 = opnemen, 2 = laten rinkelen
 //                        8 s niets doen = laten rinkelen
 //   opnieuw (nieuwe code) A/X op het uitslagscherm                       R
@@ -28,8 +29,8 @@ public class ApplicationConnection : MonoBehaviour
     public PhoneRinger phone;
     public Tutorial tutorial;
     public PlayerViewStreamer playerView;
-    [Tooltip("Minimale wachttijd na het koppelen, zodat het publiek kan joinen (s)")]
-    public int lobbySeconds = 60;
+    [Tooltip("Leeg = teststemming na de tutorial. Anders: deze scene laden (sessie blijft verbonden)")]
+    public string nextScene = "";
     [Tooltip("Stemtijd in seconden (game flow: 12)")]
     public int voteSeconds = 12;
     [Tooltip("Hoe lang de telefoon na de stemming nog rinkelt bij 'laten rinkelen'")]
@@ -41,10 +42,9 @@ public class ApplicationConnection : MonoBehaviour
     [Tooltip("Afstand van het paneel in de bril (m)")]
     public float panelDistance = 2.2f;
 
-    enum Phase { Connecting, ShowCode, Tutorial, WaitingForAudience, Voting, KevinDecides, Result }
+    enum Phase { Connecting, ShowCode, Tutorial, Voting, KevinDecides, Result }
     Phase phase;
     bool offline; // zonder groot scherm verder
-    float lobbyStart;
     float codeShownAt;
     float kevinDeadline;
     string kevinChoice;
@@ -64,10 +64,11 @@ public class ApplicationConnection : MonoBehaviour
     void Awake()
     {
         if (Find<XRRigSetup>() == null) gameObject.AddComponent<XRRigSetup>(); // hoofdtracking in de Quest
-        if (sessionClient == null) sessionClient = Find<SessionClient>() ?? gameObject.AddComponent<SessionClient>();
+        // Sessie op een eigen object, zodat ze een scenewissel overleeft (KeepSession).
+        if (sessionClient == null) sessionClient = Find<SessionClient>() ?? new GameObject("Session").AddComponent<SessionClient>();
         if (phone == null) phone = Find<PhoneRinger>();
         if (tutorial == null) tutorial = Find<Tutorial>() ?? gameObject.AddComponent<Tutorial>();
-        if (playerView == null) playerView = Find<PlayerViewStreamer>() ?? gameObject.AddComponent<PlayerViewStreamer>();
+        if (playerView == null) playerView = Find<PlayerViewStreamer>() ?? sessionClient.gameObject.AddComponent<PlayerViewStreamer>();
         playerView.sessionClient = sessionClient;
 #if UNITY_2022_2_OR_NEWER
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
@@ -144,32 +145,47 @@ public class ApplicationConnection : MonoBehaviour
             }
             if (sessionClient.SessionLost)
             {
+                tutorial.ResetTutorial();
                 StartCoroutine(RunSession()); // sessie vervallen: nieuwe code
                 yield break;
             }
         }
 
-        // 3. Tutorial + wachtkamer: verder als de tutorial klaar is EN er minstens lobbySeconds voorbij zijn.
-        lobbyStart = Time.unscaledTime;
-        if (!offline) yield return sessionClient.StartTutorial(lobbySeconds);
+        // 3. Tutorial: het publiek joint ondertussen. Verder zodra de tutorial klaar is.
+        if (!offline) yield return sessionClient.StartTutorial();
         phase = Phase.Tutorial;
-        ShowVr("Tutorial", "", "(coming soon)");
+        if (tutorial.Sign == null) HideVr();
         tutorial.Begin();
-        yield return new WaitUntil(() => tutorial.IsDone);
-
-        phase = Phase.WaitingForAudience;
-        while (!offline && LobbyLeft() > 0 && !sessionClient.LobbySkipped)
+        yield return new WaitUntil(() => tutorial.IsDone || (!offline && sessionClient.SessionLost));
+        if (!tutorial.IsDone)
         {
-            ShowVr("The audience is joining", $"{Mathf.CeilToInt(LobbyLeft())} s", "The game starts soon.\n\nA = skip the countdown");
-            yield return null;
+            tutorial.ResetTutorial();
+            StartCoroutine(RunSession()); // sessie vervallen tijdens de tutorial: nieuwe code
+            yield break;
         }
         if (!offline) yield return sessionClient.StartGame();
 
-        // 4. Teststemming.
+        // 4. Volgende scene, of de teststemming.
+        if (!string.IsNullOrEmpty(nextScene))
+        {
+            KeepSession();
+            SceneManager.LoadScene(nextScene);
+            yield break;
+        }
         yield return PhoneVote();
     }
 
-    float LobbyLeft() => lobbySeconds - (Time.unscaledTime - lobbyStart);
+    // SessionClient en PlayerViewStreamer gaan mee naar de volgende scene. Ze moeten samen op een eigen root-object staan.
+    void KeepSession()
+    {
+        var go = sessionClient.gameObject;
+        if (go == gameObject || go.transform.parent != null || playerView.gameObject != go)
+        {
+            Debug.LogError("[Application Connection] SessionClient en PlayerViewStreamer moeten samen op een eigen root-object staan om mee te gaan naar " + nextScene, go);
+            return;
+        }
+        DontDestroyOnLoad(go);
+    }
 
     bool OfflineOptionVisible => (phase == Phase.Connecting || phase == Phase.ShowCode) && Time.unscaledTime - codeShownAt >= offlineOptionAfter;
 
@@ -242,11 +258,6 @@ public class ApplicationConnection : MonoBehaviour
             offline = true;
             sessionClient.GoOffline();
         }
-        if (phase == Phase.WaitingForAudience && (KeyDown(Key.K) || button))
-        {
-            // Wachttijd overslaan, net als de knop op het grote scherm.
-            if (!offline && !sessionClient.LobbySkipped) StartCoroutine(sessionClient.SkipLobby());
-        }
         if (phase == Phase.KevinDecides)
         {
             if (KeyDown(Key.One) || (TriggerPressed() && LookingAtPhone())) kevinChoice = "opnemen";
@@ -279,8 +290,7 @@ public class ApplicationConnection : MonoBehaviour
         string text =
             $"Server: {c.ServerUrl} ({(offline ? "offline by choice" : c.ConnectionStatus.ToString())})\n" +
             $"Code: {(string.IsNullOrEmpty(c.Code) ? "-" : PrettyCode(c.Code))}   Big screen: {(c.ScreenPaired ? "paired" : "not yet")}   Viewers: {c.Viewers}\n" +
-            $"Phase: {phase}";
-        if (phase == Phase.WaitingForAudience) text += c.LobbySkipped ? " (skipped)" : $" ({Mathf.CeilToInt(Mathf.Max(0, LobbyLeft()))} s left)";
+            $"Phase: {phase}" + (tutorial is StreetTutorial street ? $" (step: {street.StepName})" : "");
         if (playerView != null)
             text += $"\nPlayer view: {(playerView.IsStreaming ? $"on ({playerView.framesPerSecond} per s)" : "off")}"
                     + (string.IsNullOrEmpty(playerView.LastError) ? "" : $" <color=#ff8080>{playerView.LastError}</color>");
@@ -292,7 +302,7 @@ public class ApplicationConnection : MonoBehaviour
         }
         if (!string.IsNullOrEmpty(c.LastError)) text += $"\n<color=#ff8080>{c.LastError}</color>";
         if (phase == Phase.Connecting || phase == Phase.ShowCode) text += "\n[S] play without a big screen";
-        if (phase == Phase.WaitingForAudience) text += "\n[K] skip the countdown";
+        if (phase == Phase.Tutorial && tutorial is StreetTutorial) text += "\n[N] next tutorial step";
         debugText.text = text;
     }
 
@@ -316,7 +326,7 @@ public class ApplicationConnection : MonoBehaviour
 #endif
     }
 
-    enum Key { S, R, K, One, Two }
+    enum Key { S, R, One, Two }
 
     static bool KeyDown(Key key)
     {
@@ -327,7 +337,6 @@ public class ApplicationConnection : MonoBehaviour
         {
             case Key.S: return kb.sKey.wasPressedThisFrame;
             case Key.R: return kb.rKey.wasPressedThisFrame;
-            case Key.K: return kb.kKey.wasPressedThisFrame;
             case Key.One: return kb.digit1Key.wasPressedThisFrame;
             case Key.Two: return kb.digit2Key.wasPressedThisFrame;
             default: return false;
@@ -337,7 +346,6 @@ public class ApplicationConnection : MonoBehaviour
         {
             case Key.S: return Input.GetKeyDown(KeyCode.S);
             case Key.R: return Input.GetKeyDown(KeyCode.R);
-            case Key.K: return Input.GetKeyDown(KeyCode.K);
             case Key.One: return Input.GetKeyDown(KeyCode.Alpha1);
             case Key.Two: return Input.GetKeyDown(KeyCode.Alpha2);
             default: return false;
@@ -353,6 +361,12 @@ public class ApplicationConnection : MonoBehaviour
 
     void ShowVr(string title, string big, string small)
     {
+        if (tutorial != null && tutorial.Sign != null)
+        {
+            vrPanel.SetActive(false);
+            tutorial.Sign.Show(title, big, small);
+            return;
+        }
         vrPanel.SetActive(true);
         vrTitle.text = title;
         vrBig.text = big;
