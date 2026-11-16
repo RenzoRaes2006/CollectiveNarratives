@@ -10,14 +10,19 @@ public class ColorOnInteract : MonoBehaviour
     public Color selectColor = Color.green;
 
     public bool IsHovered { get; private set; }
+    public bool WasHovered { get; private set; } // blijft true, ook als de speler al wegkeek
     public bool WasSelected { get; private set; }
 
     XRSimpleInteractable interactable;
     Renderer rend;
     Color normalColor;
 
-    void Awake()
+    void Awake() => Init();
+
+    // Ook vanuit ResetBox: de tutorial kan die aanroepen voor deze Awake liep.
+    void Init()
     {
+        if (rend != null) return;
         interactable = GetComponent<XRSimpleInteractable>();
         rend = GetComponentInChildren<Renderer>();
         normalColor = rend.material.color;
@@ -25,6 +30,7 @@ public class ColorOnInteract : MonoBehaviour
 
     void OnEnable()
     {
+        Init();
         interactable.hoverEntered.AddListener(OnHoverEntered);
         interactable.hoverExited.AddListener(OnHoverExited);
         interactable.selectEntered.AddListener(OnSelectEntered);
@@ -39,13 +45,16 @@ public class ColorOnInteract : MonoBehaviour
 
     public void ResetBox()
     {
+        Init();
         WasSelected = false;
+        WasHovered = false;
         rend.material.color = IsHovered ? hoverColor : normalColor;
     }
 
     void OnHoverEntered(HoverEnterEventArgs _)
     {
         IsHovered = true;
+        WasHovered = true;
         if (!WasSelected) rend.material.color = hoverColor;
     }
 

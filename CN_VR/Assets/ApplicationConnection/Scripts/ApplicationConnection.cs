@@ -290,7 +290,7 @@ public class ApplicationConnection : MonoBehaviour
         string text =
             $"Server: {c.ServerUrl} ({(offline ? "offline by choice" : c.ConnectionStatus.ToString())})\n" +
             $"Code: {(string.IsNullOrEmpty(c.Code) ? "-" : PrettyCode(c.Code))}   Big screen: {(c.ScreenPaired ? "paired" : "not yet")}   Viewers: {c.Viewers}\n" +
-            $"Phase: {phase}";
+            $"Phase: {phase}" + (tutorial is StreetTutorial street ? $" (step: {street.StepName})" : "");
         if (playerView != null)
             text += $"\nPlayer view: {(playerView.IsStreaming ? $"on ({playerView.framesPerSecond} per s)" : "off")}"
                     + (string.IsNullOrEmpty(playerView.LastError) ? "" : $" <color=#ff8080>{playerView.LastError}</color>");

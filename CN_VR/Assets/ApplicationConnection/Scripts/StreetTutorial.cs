@@ -29,6 +29,9 @@ public class StreetTutorial : Tutorial
     SessionClient session;
 
     public override TutorialSign Sign => sign1;
+    // Voor de debug-overlay: stap en plek van het hoofd t.o.v. de start (x = zijwaarts, z = de straat in).
+    public string StepName => Camera.main == null ? step.ToString()
+        : $"{step}, head {transform.parent.InverseTransformPoint(Camera.main.transform.position):F1}";
 
     public static bool LookedAround(float minYaw, float maxYaw, float threshold = 70f) =>
         minYaw <= -threshold && maxYaw >= threshold;
@@ -90,7 +93,7 @@ public class StreetTutorial : Tutorial
     void Update()
     {
         if (step == Step.Idle || step == Step.Done) return;
-        if (EditorNextPressed()) { Go(step + 1); return; }
+        if (EditorNextPressed()) { SkipStep(); return; }
 
         var cam = Camera.main;
         switch (step)
@@ -106,7 +109,7 @@ public class StreetTutorial : Tutorial
                 if (cam != null && walkZone.bounds.Contains(cam.transform.position)) Go(Step.Point);
                 break;
             case Step.Point:
-                if (box.IsHovered) Go(Step.Grip);
+                if (box.WasHovered) Go(Step.Grip);
                 break;
             case Step.Grip:
                 if (box.WasSelected) Go(Step.Begin);
@@ -118,6 +121,12 @@ public class StreetTutorial : Tutorial
                 if (beginButton.WasSelected) Go(Step.Done);
                 break;
         }
+    }
+
+    // Volgende stap zonder de actie (Editor: N). Ook voor testen.
+    public void SkipStep()
+    {
+        if (step != Step.Idle && step != Step.Done) Go(step + 1);
     }
 
     void ShowGripHints(bool on)

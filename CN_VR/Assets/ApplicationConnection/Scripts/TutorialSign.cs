@@ -6,7 +6,7 @@ using UnityEngine.UI;
 // 1600x900 pixels = 1,6 x 0,9 m; het midden van het bord ligt op de positie van dit object.
 public class TutorialSign : MonoBehaviour
 {
-    static readonly Color Background = new Color(1f, 1f, 1f, 0.6f);
+    static readonly Color Background = new Color(1f, 1f, 1f, 0.75f);
     static readonly Color Ink = new Color(0.1f, 0.1f, 0.12f);
 
     Text title, big, small;
