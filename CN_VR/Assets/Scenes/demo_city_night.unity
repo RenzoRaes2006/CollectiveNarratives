@@ -48259,6 +48259,26 @@ PrefabInstance:
       propertyPath: m_Name
       value: House
       objectReference: {fileID: 0}
+    - target: {fileID: 2995209075690996819, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
+      propertyPath: m_SizeDelta.x
+      value: 0.1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2995209075690996819, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
+      propertyPath: m_SizeDelta.y
+      value: 0.1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2995209075690996828, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
+      propertyPath: m_fontSize
+      value: 0.02
+      objectReference: {fileID: 0}
+    - target: {fileID: 2995209075690996828, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
+      propertyPath: 'm_ActiveFontFeatures.Array.data[0]'
+      value: 1801810542
+      objectReference: {fileID: 0}
+    - target: {fileID: 2995209075690996829, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
+      propertyPath: m_Mesh
+      value: 
+      objectReference: {fileID: 0}
     - target: {fileID: 6417756120091753341, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
       propertyPath: m_LocalPosition.x
       value: -269.85
