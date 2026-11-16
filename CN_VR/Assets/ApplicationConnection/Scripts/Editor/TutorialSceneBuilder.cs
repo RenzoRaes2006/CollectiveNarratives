@@ -130,7 +130,7 @@ public static class TutorialSceneBuilder
         var tm = label.GetComponent<TextMesh>();
         tm.text = "Begin";
         tm.fontSize = 60;
-        tm.characterSize = 0.1f;
+        tm.characterSize = 0.9f; // ~12 cm hoge letters
         tm.anchor = TextAnchor.MiddleCenter;
         tm.alignment = TextAlignment.Center;
         tm.color = Color.white;
@@ -156,10 +156,6 @@ public static class TutorialSceneBuilder
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         go.transform.localPosition = localPos;
-        // Paal tot op de grond: de speler loopt eromheen, niet erdoor.
-        var stop = go.AddComponent<BoxCollider>();
-        stop.size = new Vector3(1.6f, localPos.y + 0.45f, 0.1f);
-        stop.center = new Vector3(0f, (0.45f - localPos.y) / 2f, 0.05f);
         return go.AddComponent<TutorialSign>();
     }
 
@@ -183,7 +179,7 @@ public static class TutorialSceneBuilder
         if (controller == null) { Debug.LogWarning("[Tutorial] " + controllerName + " niet gevonden in de rig."); return null; }
         var go = new GameObject("GRIP-aanduiding");
         go.transform.SetParent(controller, false);
-        go.transform.localPosition = new Vector3(-side * 0.012f, -0.03f, -0.035f);
+        go.transform.localPosition = new Vector3(-side * 0.022f, -0.02f, 0.005f); // binnenkant handvat, onder de middelvinger
         var hint = go.AddComponent<GripHint>();
         hint.labelOffset = new Vector3(-side * 0.07f, 0.02f, 0f);
         return hint;
