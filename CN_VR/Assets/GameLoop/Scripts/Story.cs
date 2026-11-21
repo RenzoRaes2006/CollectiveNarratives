@@ -59,6 +59,9 @@ public static class Story
             float d = Vector3.Distance(t.position, near);
             if (d < bestD) { bestD = d; best = t.gameObject; }
         }
+        // Heeft een kind dezelfde naam als zijn parent (bv. Closet/Closet), neem dan de parent: daar zit alles onder.
+        while (best != null && best.transform.parent != null && string.Equals(best.transform.parent.name.Trim(), n, System.StringComparison.OrdinalIgnoreCase))
+            best = best.transform.parent.gameObject;
         return best;
     }
 
@@ -258,7 +261,7 @@ public static class Story
             }
         }
         if (path == null) path = new List<Vector3> { target };
-        if (anim != null) anim.speed = 1f;
+        if (anim != null) { anim.speed = 1f; anim.applyRootMotion = false; } // root motion zou het personage terugduwen
         // Tijdens het lopen botst het personage niet met de speler (de speler duwt hem anders terug).
         var cols = new List<Collider>();
         foreach (var c in who.GetComponentsInChildren<Collider>()) if (c.enabled && !c.isTrigger) { c.enabled = false; cols.Add(c); }
@@ -344,6 +347,14 @@ public static class Story
             to = Pos(goal % w, goal / w);
         }
         blocked[start] = 1; // het personage staat er al
+        {
+            // Staat het personage half in een meubel of muur (bv. net binnen de deur), laat hem er dan uit stappen:
+            // de cellen vlak rond het startpunt tellen als vrij.
+            int sx = start % w, sz = start / w, er = Mathf.CeilToInt(0.6f / Cell);
+            for (int z = Mathf.Max(0, sz - er); z <= Mathf.Min(h - 1, sz + er); z++)
+                for (int x = Mathf.Max(0, sx - er); x <= Mathf.Min(w - 1, sx + er); x++)
+                    if ((x - sx) * (x - sx) + (z - sz) * (z - sz) <= er * er) blocked[x + z * w] = 1;
+        }
 
         var cost = new Dictionary<int, float> { [start] = 0f };
         var came = new Dictionary<int, int>();

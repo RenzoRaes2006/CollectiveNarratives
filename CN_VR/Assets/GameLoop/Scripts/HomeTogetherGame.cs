@@ -323,6 +323,15 @@ public class HomeTogetherGame : MonoBehaviour
         yield return RunStory();
     }
 
+
+    // ---------- Testhaakjes (voor geautomatiseerde tests in de Editor; doen hetzelfde als de toetsen N / 1 / 2 / J) ----------
+    public Points TestPoints => P;
+    public Vector3 TestDoorInside => doorInside;
+    public GameObject TestDog => dog;
+    public GameObject TestRob => rob;
+    public void TestSkip() => debugSkip = true;
+    public void TestTogether() => debugTogether = true;
+    public bool TestForce(string option) { if (activeVote == null) return false; activeVote.forced = option; return true; }
     string loggedStep = "";
     Transform originT;
     Vector3 lastSafe;
@@ -1273,12 +1282,13 @@ public class HomeTogetherGame : MonoBehaviour
     Vector3 closetFront = Vector3.forward;
 
     [Tooltip("Hoe ver de kastdeuren openstaan als Kevin erin zit (0 = dicht, 1 = open): een kier om door te kijken.")]
-    [Range(0f, 0.5f)] public float closetPeekGap = 0.12f;
+    [Range(0f, 0.5f)] public float closetPeekGap = 0.18f;
+    [Tooltip("Hoe ver (graden) de kastdeuren opengaan bij de keuze kast.")] public float closetDoorOpenAngle = 100f;
 
     /// <summary>Kan Kevin nu in de kast stappen? (de testbesturing gebruikt dit voor E = in de kast)</summary>
     public bool ClosetEnterable { get; private set; }
     /// <summary>Plek in de kast (op de vloer) en de richting waarin de kast opent.</summary>
-    public Vector3 ClosetInside => Floor(P.closet - closetFront * 0.1f, 0f);
+    public Vector3 ClosetInside => Floor((closet != null ? Story.Center(closet) : P.closet) - closetFront * 0.12f, 0f);
     public Vector3 ClosetFront => closetFront;
 
     /// <summary>
@@ -1289,7 +1299,6 @@ public class HomeTogetherGame : MonoBehaviour
     void SetupClosetDoors()
     {
         if (closet == null) return;
-        Vector3 openCenters = Vector3.zero;
         foreach (var t in closet.GetComponentsInChildren<Transform>(true))
         {
             if (t == closet.transform) continue;
@@ -1297,21 +1306,36 @@ public class HomeTogetherGame : MonoBehaviour
             float twistDeg = 2f * Mathf.Atan2(Mathf.Abs(t.localRotation.z), Mathf.Abs(t.localRotation.w)) * Mathf.Rad2Deg;
             bool named = t.name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0;
             if (!named && !(twistDeg > 20f && t.GetComponent<Renderer>() != null)) continue;
-            Quaternion open = t.localRotation;
-            var twist = new Quaternion(0f, 0f, open.z, open.w);
-            float len = Mathf.Sqrt(twist.z * twist.z + twist.w * twist.w);
-            Quaternion closed = len < 0.0001f ? open : open * Quaternion.Inverse(new Quaternion(0f, 0f, twist.z / len, twist.w / len));
-            openCenters += Story.Center(t.gameObject);
+            // Dicht = de draaiing rond de scharnieras (lokale Z) eraf halen, ook als de deur in de scene al (bijna) dicht staat.
+            Quaternion now = t.localRotation;
+            float len = Mathf.Sqrt(now.z * now.z + now.w * now.w);
+            Quaternion closed = len < 0.0001f ? now : now * Quaternion.Inverse(new Quaternion(0f, 0f, now.z / len, now.w / len));
             closetDoors.Add(t);
-            closetDoorsOpen.Add(open);
             closetDoorsClosed.Add(closed);
             t.localRotation = closed;
+        }
+        // Open = vanuit dicht 'closetDoorOpenAngle' graden rond de scharnieras, naar de kant waar de deur van de kast weg zwaait.
+        Vector3 body = Story.Center(closet);
+        Vector3 openCenters = Vector3.zero;
+        for (int i = 0; i < closetDoors.Count; i++)
+        {
+            var t = closetDoors[i];
+            Quaternion plus = closetDoorsClosed[i] * Quaternion.Euler(0f, 0f, closetDoorOpenAngle);
+            Quaternion minus = closetDoorsClosed[i] * Quaternion.Euler(0f, 0f, -closetDoorOpenAngle);
+            t.localRotation = plus;
+            Vector3 cPlus = Story.Center(t.gameObject);
+            t.localRotation = minus;
+            Vector3 cMinus = Story.Center(t.gameObject);
+            bool usePlus = Story.FlatDist(cPlus, body) >= Story.FlatDist(cMinus, body);
+            closetDoorsOpen.Add(usePlus ? plus : minus);
+            openCenters += usePlus ? cPlus : cMinus;
+            t.localRotation = closetDoorsClosed[i];
         }
         var cb = Story.Bounds(closet);
         Debug.Log($"[Home Together] Kast '{closet.name}': {closetDoors.Count} deuren, midden {cb.center}, grootte {cb.size}");
         if (closetDoors.Count == 0) { Debug.LogWarning("[Home Together] Geen kastdeuren ('Door' in de naam) gevonden onder " + closet.name); return; }
         // Open deuren steken naar voren uit: daar is de voorkant van de kast.
-        closetFront = Story.FlatDir(Story.Center(closet), openCenters / closetDoors.Count, Story.FlatDir(P.closet, doorInside, -P.forward));
+        closetFront = Story.FlatDir(body, openCenters / closetDoors.Count, Story.FlatDir(P.closet, doorInside, -P.forward));
     }
 
     IEnumerator MoveClosetDoors(float to, float seconds)

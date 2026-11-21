@@ -193,6 +193,17 @@ public class DesktopTestRig : MonoBehaviour
 #endif
     }
 
+
+    /// <summary>Kijk naar een punt (voor tests): draait het lichaam en kantelt het hoofd.</summary>
+    public void LookAt(Vector3 point)
+    {
+        if (cam == null) return;
+        Vector3 d = point - cam.position;
+        Vector3 flat = new Vector3(d.x, 0f, d.z);
+        if (flat.sqrMagnitude > 0.0001f)
+            body.RotateAround(cam.position, Vector3.up, Vector3.SignedAngle(Story.FlatDir(Vector3.zero, cam.forward, Vector3.forward), flat, Vector3.up));
+        pitch = Mathf.Clamp(-Mathf.Atan2(d.y, flat.magnitude) * Mathf.Rad2Deg, -80f, 80f);
+    }
     void LateUpdate()
     {
         if (cam == null) return;
