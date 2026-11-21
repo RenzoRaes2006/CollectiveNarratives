@@ -342,8 +342,32 @@ public class HomeTogetherGame : MonoBehaviour
     /// met grond staan, alsof er een onzichtbare rand is. Zo valt niemand door de map. Dit is geen teleport:
     /// de speler wordt alleen tegengehouden, zoals een muur doet.
     /// </summary>
+    Vector3 closetCenter;
+    float closetDoorReach, closetSideReach;
+
+    /// <summary>
+    /// In de kast (9a) kan het hoofd niet door de (bijna) dichte deuren: leunt Kevin verder, dan schuift de speelruimte
+    /// net zoveel terug, zoals een muur je tegenhoudt. Gluren door de kier blijft gewoon kunnen.
+    /// </summary>
+    void KeepHeadInCloset()
+    {
+        if (!step.StartsWith("9a") || closetDoors.Count == 0 || closetDoorsK > 0.5f || head == null || originT == null) return;
+        Vector3 rel = head.position - closetCenter; rel.y = 0f;
+        Vector3 sideDir = Vector3.Cross(Vector3.up, closetFront);
+        if (Mathf.Abs(Vector3.Dot(rel, sideDir)) > closetSideReach + 0.3f) return; // niet voor de kast
+        float along = Vector3.Dot(rel, closetFront);
+        float max = closetDoorReach - 0.12f; // hoofd = ongeveer 12 cm
+        if (along <= max || along > closetDoorReach + 0.6f) return;
+        var cc = originT.GetComponent<CharacterController>();
+        bool was = cc != null && cc.enabled;
+        if (was) cc.enabled = false;
+        originT.position -= closetFront * (along - max);
+        if (was) cc.enabled = true;
+    }
+
     void LateUpdate()
     {
+        KeepHeadInCloset();
         if (!guardReady || originT == null || DesktopTestRig.Noclip) return;
         bool ground = Physics.Raycast(originT.position + Vector3.up * 0.5f, Vector3.down, 2.5f, ~0, QueryTriggerInteraction.Ignore);
         if (ground) { lastSafe = originT.position; return; }
@@ -1336,6 +1360,12 @@ public class HomeTogetherGame : MonoBehaviour
         if (closetDoors.Count == 0) { Debug.LogWarning("[Home Together] Geen kastdeuren ('Door' in de naam) gevonden onder " + closet.name); return; }
         // Open deuren steken naar voren uit: daar is de voorkant van de kast.
         closetFront = Story.FlatDir(body, openCenters / closetDoors.Count, Story.FlatDir(P.closet, doorInside, -P.forward));
+        // Hoe ver de dichte deuren van het midden liggen (langs de voorkant) en hoe breed de kast is.
+        var closedBounds = Story.Bounds(closet);
+        closetCenter = closedBounds.center;
+        Vector3 sideDir = Vector3.Cross(Vector3.up, closetFront);
+        closetDoorReach = Mathf.Abs(closetFront.x) * closedBounds.extents.x + Mathf.Abs(closetFront.z) * closedBounds.extents.z;
+        closetSideReach = Mathf.Abs(sideDir.x) * closedBounds.extents.x + Mathf.Abs(sideDir.z) * closedBounds.extents.z;
     }
 
     IEnumerator MoveClosetDoors(float to, float seconds)
