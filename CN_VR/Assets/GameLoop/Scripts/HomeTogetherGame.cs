@@ -1226,7 +1226,8 @@ public class HomeTogetherGame : MonoBehaviour
             // Kastje gaat op een kier, warm lampje achter de latten. Staat het licht aan, dan klikt het ganglicht uit.
             closetLight.intensity = 3f;
             closetLight.range = 3.5f;
-            StartCoroutine(OpenClosetDoors(1.4f));
+            StartCoroutine(MoveClosetDoors(1f, 1.4f));
+            ClosetEnterable = true;
             StorySounds.Play("creak", P.closet, 0.6f, false, null, 1.4f);
             // Kevin moet er echt in kunnen stappen (ook met de joystick): de kast houdt hem niet meer tegen.
             if (closet != null)
@@ -1254,6 +1255,7 @@ public class HomeTogetherGame : MonoBehaviour
         });
         if (chosen == "") chosen = closetOpen ? "kast" : "raam";
         if (vote.winner == "") KevinDecides(vote, chosen);
+        ClosetEnterable = false;
         hidden = chosen == "kast";
         escaped = chosen == "raam";
         choices.Add("inbreker=" + chosen);
@@ -1265,6 +1267,17 @@ public class HomeTogetherGame : MonoBehaviour
     readonly List<Transform> closetDoors = new List<Transform>();
     readonly List<Quaternion> closetDoorsOpen = new List<Quaternion>();
     readonly List<Quaternion> closetDoorsClosed = new List<Quaternion>();
+    float closetDoorsK; // 0 = dicht, 1 = helemaal open
+    Vector3 closetFront = Vector3.forward;
+
+    [Tooltip("Hoe ver de kastdeuren openstaan als Kevin erin zit (0 = dicht, 1 = open): een kier om door te kijken.")]
+    [Range(0f, 0.5f)] public float closetPeekGap = 0.12f;
+
+    /// <summary>Kan Kevin nu in de kast stappen? (de testbesturing gebruikt dit voor E = in de kast)</summary>
+    public bool ClosetEnterable { get; private set; }
+    /// <summary>Plek in de kast (op de vloer) en de richting waarin de kast opent.</summary>
+    public Vector3 ClosetInside => Floor(P.closet - closetFront * 0.1f, 0f);
+    public Vector3 ClosetFront => closetFront;
 
     /// <summary>
     /// De deuren van de kast ("Left Door" / "Right Door") staan in de prefab open. Bij de start gaan ze dicht;
@@ -1274,6 +1287,7 @@ public class HomeTogetherGame : MonoBehaviour
     void SetupClosetDoors()
     {
         if (closet == null) return;
+        Vector3 openCenters = Vector3.zero;
         foreach (var t in closet.GetComponentsInChildren<Transform>(true))
         {
             if (t == closet.transform || t.name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) < 0) continue;
@@ -1281,29 +1295,38 @@ public class HomeTogetherGame : MonoBehaviour
             var twist = new Quaternion(0f, 0f, open.z, open.w);
             float len = Mathf.Sqrt(twist.z * twist.z + twist.w * twist.w);
             Quaternion closed = len < 0.0001f ? open : open * Quaternion.Inverse(new Quaternion(0f, 0f, twist.z / len, twist.w / len));
+            openCenters += Story.Center(t.gameObject);
             closetDoors.Add(t);
             closetDoorsOpen.Add(open);
             closetDoorsClosed.Add(closed);
             t.localRotation = closed;
         }
-        if (closetDoors.Count == 0) Debug.LogWarning("[Home Together] Geen kastdeuren ('Door' in de naam) gevonden onder " + closet.name);
+        if (closetDoors.Count == 0) { Debug.LogWarning("[Home Together] Geen kastdeuren ('Door' in de naam) gevonden onder " + closet.name); return; }
+        // Open deuren steken naar voren uit: daar is de voorkant van de kast.
+        closetFront = Story.FlatDir(Story.Center(closet), openCenters / closetDoors.Count, Story.FlatDir(P.closet, doorInside, -P.forward));
     }
 
-    IEnumerator OpenClosetDoors(float seconds)
+    IEnumerator MoveClosetDoors(float to, float seconds)
     {
+        float from = closetDoorsK;
         for (float t = 0f; t < seconds; t += Time.deltaTime)
         {
-            float k = Mathf.SmoothStep(0f, 1f, t / seconds);
-            for (int i = 0; i < closetDoors.Count; i++)
-                if (closetDoors[i] != null) closetDoors[i].localRotation = Quaternion.Slerp(closetDoorsClosed[i], closetDoorsOpen[i], k);
+            SetClosetDoors(Mathf.Lerp(from, to, Mathf.SmoothStep(0f, 1f, t / seconds)));
             yield return null;
         }
-        for (int i = 0; i < closetDoors.Count; i++)
-            if (closetDoors[i] != null) closetDoors[i].localRotation = closetDoorsOpen[i];
+        SetClosetDoors(to);
     }
+
+    void SetClosetDoors(float k)
+    {
+        closetDoorsK = k;
+        for (int i = 0; i < closetDoors.Count; i++)
+            if (closetDoors[i] != null) closetDoors[i].localRotation = Quaternion.Slerp(closetDoorsClosed[i], closetDoorsOpen[i], k);
+    }
+
     IEnumerator SweepTorch()
     {
-        while (robTorch != null && robTorch.enabled)
+        while (robTorch != null && robTorch.enabled && !step.StartsWith("9a"))
         {
             float a = Mathf.Sin(Time.time * 0.8f) * 50f;
             Vector3 dir = Quaternion.AngleAxis(a, Vector3.up) * (-doorOut) + Vector3.up * 0.6f;
@@ -1330,12 +1353,27 @@ public class HomeTogetherGame : MonoBehaviour
     IEnumerator Step9a_Closet(Action<bool> done)
     {
         step = "9a In de kast";
-        Vector3 front = Floor(P.closet + Story.FlatDir(P.closet, doorInside, -P.forward) * 1.0f, 0f);
-        Vector3 side = Vector3.Cross(Vector3.up, Story.FlatDir(front, P.closet, P.forward));
+        // Kevin staat in de kast: de deuren gaan zacht dicht tot een kier. Hij kijkt door de spleet naar de gang.
+        StorySounds.Play("creak", P.closet, 0.4f, false, null, 1.6f);
+        yield return MoveClosetDoors(closetPeekGap, 1.2f);
+        closetLight.intensity = 0.25f; // bijna donker binnen: alleen strepen licht van buiten
+        closetLight.range = 1.2f;
+
+        Vector3 front = Floor(P.closet + closetFront * 1.1f, 0f);
+        Vector3 side = Vector3.Cross(Vector3.up, closetFront);
         AudioSource breath = null;
         if (rob != null)
         {
-            yield return Story.Walk(rob.transform, front + side * 1.5f, 0.8f, robAnim); // komt van rechts
+            if (!rob.activeSelf) { rob.SetActive(true); rob.transform.position = Floor(doorInside, 0f); }
+            // Zaklamp van de inbreker: die zie je door de kier over de deuren glijden.
+            if (robTorch == null)
+            {
+                robTorch = Story.MakeLight("Zaklamp inbreker", rob.transform.position + Vector3.up * 1.5f, LightType.Spot, Color.white, 6f, 15f, rob.transform);
+                robTorch.spotAngle = 35f;
+            }
+            yield return Story.Walk(rob.transform, front + side * 1.8f, 0.8f, robAnim); // komt van rechts
+            StartCoroutine(TorchOnCloset());
+            StartCoroutine(Footsteps("step", front + side * 1.8f, front, 3, 0.7f, 0.9f));
             yield return Story.Walk(rob.transform, front, 0.6f, robAnim);
             Story.Face(rob.transform, P.closet);
             breath = StorySounds.Play("breath", rob.transform.position + Vector3.up * 1.6f, 0.8f, true, rob.transform);
@@ -1343,6 +1381,18 @@ public class HomeTogetherGame : MonoBehaviour
         StartCoroutine(CreakWhenMovingTooFast());
         yield return JointAction(done);
         StorySounds.Stop(breath);
+    }
+
+    /// <summary>De inbreker schijnt langzaam heen en weer over de kastdeuren, zolang Kevin erin zit.</summary>
+    IEnumerator TorchOnCloset()
+    {
+        Vector3 side = Vector3.Cross(Vector3.up, closetFront);
+        while (robTorch != null && robTorch.enabled && step.StartsWith("9a"))
+        {
+            Vector3 target = P.closet + side * Mathf.Sin(Time.time * 0.9f) * 0.6f + Vector3.up * (0.2f + 0.2f * Mathf.Sin(Time.time * 0.5f));
+            robTorch.transform.rotation = Quaternion.Slerp(robTorch.transform.rotation, Quaternion.LookRotation(target - robTorch.transform.position), Time.deltaTime * 4f);
+            yield return null;
+        }
     }
 
     IEnumerator CreakWhenMovingTooFast()

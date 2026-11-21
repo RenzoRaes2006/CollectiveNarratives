@@ -31,6 +31,7 @@ public class DesktopTestRig : MonoBehaviour
     public bool noclip;
 
     HomeTogetherGame.TestMode mode;
+    HomeTogetherGame game;
     XROrigin origin;
     Transform body, cam;
     CharacterController cc;
@@ -75,6 +76,7 @@ public class DesktopTestRig : MonoBehaviour
         cam = camera.transform;
         body = origin != null ? origin.transform : cam;
         cc = body.GetComponent<CharacterController>();
+        game = FindFirstObjectByType<HomeTogetherGame>();
 
         // Zonder bril schrijven de TrackedPoseDrivers niets, maar zet ze uit zodat ze onze muis niet overschrijven.
         foreach (var b in cam.GetComponents<Behaviour>())
@@ -161,6 +163,17 @@ public class DesktopTestRig : MonoBehaviour
         // Pakken / vasthouden
         bool press = kb.eKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame);
         bool held = kb.eKey.isPressed || (mouse != null && mouse.leftButton.isPressed);
+        // Testbesturing: E terwijl je naar de open kast kijkt = erin stappen (in de bril loopt Kevin er zelf in).
+        if (press && !gliding && game != null && game.ClosetEnterable)
+        {
+            Vector3 inside = game.ClosetInside;
+            Vector3 to = inside - cam.position; to.y = 0f;
+            if (to.magnitude < 3.5f && Vector3.Angle(Story.FlatDir(Vector3.zero, cam.forward, Vector3.forward), to) < 35f)
+            {
+                StartCoroutine(GlideInto(inside, game.ClosetFront));
+                press = false;
+            }
+        }
         if (hand.Holding != null)
         {
             bool isGrab = hand.Holding is XRGrabInteractable;
@@ -211,6 +224,32 @@ public class DesktopTestRig : MonoBehaviour
         return null;
     }
 
+
+    bool gliding;
+
+    /// <summary>Alleen voor testen zonder bril: stap rustig de kast in en draai naar de kier.</summary>
+    System.Collections.IEnumerator GlideInto(Vector3 inside, Vector3 facing)
+    {
+        gliding = true;
+        bool hadCc = cc != null && cc.enabled;
+        if (hadCc) cc.enabled = false;
+        Vector3 startCam = new Vector3(cam.position.x, 0f, cam.position.z);
+        float startYaw = Mathf.Atan2(cam.forward.x, cam.forward.z) * Mathf.Rad2Deg;
+        float endYaw = Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg;
+        for (float t = 0f; t <= 1f; t += Time.deltaTime / 1.2f)
+        {
+            float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
+            Vector3 want = Vector3.Lerp(startCam, new Vector3(inside.x, 0f, inside.z), k);
+            Vector3 now = new Vector3(cam.position.x, 0f, cam.position.z);
+            body.position += want - now;
+            float yawNow = Mathf.Atan2(cam.forward.x, cam.forward.z) * Mathf.Rad2Deg;
+            body.RotateAround(cam.position, Vector3.up, Mathf.DeltaAngle(yawNow, Mathf.LerpAngle(startYaw, endYaw, k)));
+            yield return null;
+        }
+        pitch = 0f;
+        if (hadCc) cc.enabled = true;
+        gliding = false;
+    }
     void ToggleDoor(VRDoor door)
     {
         if (door.Locked) { Say(door.name + " zit op slot"); return; }
