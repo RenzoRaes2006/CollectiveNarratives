@@ -824,6 +824,9 @@ public class HomeTogetherGame : MonoBehaviour
             }
             if (vote.winner == "") KevinDecides(vote, picked || vote.winner == "opnemen" ? "opnemen" : "rinkelen");
             StopRinging();
+            // Kevin nam niet op (gelijkspel): het antwoordapparaat speelt Marleys bericht, als die opname er is.
+            if (!picked && Resources.Load<AudioClip>("HomeTogetherSounds/voicemail") != null)
+                StorySounds.Play("voicemail", P.phone, 0.9f);
             if (vote.winner == "opnemen" || picked)
             {
                 // Marley aan de lijn, dicht bij zijn linkeroor. Achter hem flitst Marleys licht aan en uit.
@@ -985,8 +988,41 @@ public class HomeTogetherGame : MonoBehaviour
         if (t != null) Destroy(t.gameObject);
     }
 
+    Light engineRoomLight;
+
+    /// <summary>Licht dat zacht flakkert zolang de voorwaarde geldt, daarna uit.</summary>
+    IEnumerator Flicker(Light l, float intensity, Func<bool> whileTrue)
+    {
+        while (l != null && whileTrue())
+        {
+            l.intensity = intensity * (0.8f + 0.2f * Mathf.PerlinNoise(Time.time * 3f, 0.5f)) * (UnityEngine.Random.value < 0.01f ? 0.3f : 1f);
+            yield return null;
+        }
+        if (l != null) l.intensity = 0f;
+    }
+
+    /// <summary>Is de opname een hele reeks stappen (langer dan 1,5 s) in plaats van één stap?</summary>
+    static bool IsLongRecording(string sound)
+    {
+        var clip = StorySounds.Get(sound);
+        return clip != null && clip.length > 1.5f;
+    }
+
     IEnumerator Footsteps(string sound, Vector3 from, Vector3 to, int steps, float interval, float volume)
     {
+        if (IsLongRecording(sound))
+        {
+            // Echte opname met een reeks stappen: één geluid dat meeschuift van 'from' naar 'to'.
+            float dur = Mathf.Max(1f, steps * interval);
+            var src = StorySounds.Play(sound, from, volume, true);
+            for (float t = 0f; t < dur && src != null; t += Time.deltaTime)
+            {
+                src.transform.position = Vector3.Lerp(from, to, t / dur);
+                yield return null;
+            }
+            StorySounds.Stop(src);
+            yield break;
+        }
         for (int i = 0; i < steps; i++)
         {
             StorySounds.Play(sound, Vector3.Lerp(from, to, (float)i / Mathf.Max(1, steps - 1)), volume);
@@ -1073,7 +1109,12 @@ public class HomeTogetherGame : MonoBehaviour
 
         if (cellarOpen)
         {
-            cellarStrip.intensity = 1.5f;
+            cellarStrip.intensity = 3f;
+            cellarStrip.range = 2.5f;
+            // Klein warm licht in de kelderkamer bij de zekeringkast: het enige licht in het donkere huis, lokt Kevin naar beneden.
+            if (engineRoomLight == null)
+                engineRoomLight = Story.MakeLight("Licht kelderkamer", P.fuseBox + Vector3.up * 0.4f, LightType.Point, new Color(1f, 0.6f, 0.25f), 0f, 5f, transform);
+            StartCoroutine(Flicker(engineRoomLight, 2.5f, () => !lightsOn));
             fuseHum = StorySounds.Play("hum", P.fuseBox, 0.5f, true, null, 1.5f);
             if (cellarDoor != null) cellarDoor.Locked = false;
             leverTouch.enabled = true;
@@ -1112,6 +1153,7 @@ public class HomeTogetherGame : MonoBehaviour
             // Zaklamp: alleen zien waar hij op schijnt. Natte voetstappen in de gang.
             StorySounds.Stop(fuseHum);
             cellarStrip.intensity = 0f;
+            if (engineRoomLight != null) engineRoomLight.enabled = false;
             leverTouch.enabled = false;
             if (flashBeam != null) flashBeam.enabled = true;
             if (!(flashGrab != null && flashGrab.isSelected))
@@ -1334,14 +1376,25 @@ public class HomeTogetherGame : MonoBehaviour
     IEnumerator Follower()
     {
         Vector3 lastPos = head.position;
+        bool continuous = IsLongRecording("snowstep");
+        AudioSource src = continuous ? StorySounds.Play("snowstep", Floor(head.position, 0f), 0.9f, true) : null;
         while (step.StartsWith("9b"))
         {
             float moved = Story.FlatDist(head.position, lastPos);
             lastPos = head.position;
             Vector3 toMarley = Story.FlatDir(head.position, P.marley, P.forward);
-            StorySounds.Play("snowstep", Floor(head.position - toMarley * 5f, 0f), 0.9f);
+            Vector3 behind = Floor(head.position - toMarley * 5f, 0f);
+            if (continuous)
+            {
+                // Eén doorlopende opname achter Kevin; sneller (hogere toon) als hij stilstaat.
+                if (src != null) { src.transform.position = behind; src.pitch = moved < 0.1f ? 1.3f : 1f; }
+                yield return new WaitForSeconds(0.3f);
+                continue;
+            }
+            StorySounds.Play("snowstep", behind, 0.9f);
             yield return new WaitForSeconds(moved < 0.2f ? 0.35f : 0.6f); // sneller als Kevin stilstaat
         }
+        StorySounds.Stop(src);
     }
 
     IEnumerator JointAction(Action<bool> done)
