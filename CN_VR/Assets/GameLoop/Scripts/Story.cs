@@ -197,7 +197,7 @@ public static class Story
         go.transform.SetParent(parent, false);
         go.transform.position = position;
         go.transform.localScale = size;
-        if (!collider) Object.Destroy(go.GetComponent<Collider>());
+        if (!collider) { if (Application.isPlaying) Object.Destroy(go.GetComponent<Collider>()); else Object.DestroyImmediate(go.GetComponent<Collider>()); }
         Paint(go, color);
         return go;
     }
@@ -206,7 +206,8 @@ public static class Story
     {
         var r = go.GetComponent<Renderer>();
         if (r == null) return;
-        var m = r.material; // standaardmateriaal van de render pipeline
+        // standaardmateriaal van de render pipeline (in de Editor buiten Play een eigen kopie, zonder lek-waarschuwing)
+        var m = Application.isPlaying ? r.material : (r.sharedMaterial = new Material(r.sharedMaterial));
         m.color = color;
         if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", color);
     }

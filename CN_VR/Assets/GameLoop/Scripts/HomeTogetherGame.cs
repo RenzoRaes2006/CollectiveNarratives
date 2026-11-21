@@ -455,7 +455,7 @@ public class HomeTogetherGame : MonoBehaviour
     Vector3 Floor(Vector3 v, float h) => new Vector3(v.x, P.floorY + h, v.z);
 
     /// <summary>Het huis van Kevin: de bovenste parent van de kerstboom met "House" in de naam.</summary>
-    static Transform FindHouseRoot(GameObject treeObj)
+    public static Transform FindHouseRoot(GameObject treeObj)
     {
         Transform root = null;
         for (var t = treeObj != null ? treeObj.transform : null; t != null; t = t.parent)
