@@ -412,6 +412,7 @@ public class HomeTogetherGame : MonoBehaviour
         SetupFuseBox();
 
         closet = Named(Names.closet, P.tree);
+        SetupClosetDoors();
         closetLight = Story.MakeLight("Kastlampje", P.closet + Vector3.up * 0.6f, LightType.Point, new Color(1f, 0.75f, 0.45f), 0f, 2.5f, transform);
         marleyLight = Story.MakeLight("Licht bij Marley", P.marley + Vector3.up * 3f, LightType.Point, new Color(1f, 0.85f, 0.6f), 0f, 25f, transform);
         cellarStrip = Story.MakeLight("Lichtstreep kelder", Floor(P.cellarDoor, 0.05f), LightType.Point, new Color(1f, 0.55f, 0.2f), 0f, 1.5f, transform);
@@ -1181,7 +1182,9 @@ public class HomeTogetherGame : MonoBehaviour
         if (closetOpen)
         {
             // Kastje gaat op een kier, warm lampje achter de latten. Staat het licht aan, dan klikt het ganglicht uit.
-            closetLight.intensity = 2f;
+            closetLight.intensity = 3f;
+            closetLight.range = 3.5f;
+            StartCoroutine(OpenClosetDoors(1.4f));
             StorySounds.Play("creak", P.closet, 0.6f, false, null, 1.4f);
             // Kevin moet er echt in kunnen stappen (ook met de joystick): de kast houdt hem niet meer tegen.
             if (closet != null)
@@ -1214,6 +1217,48 @@ public class HomeTogetherGame : MonoBehaviour
         choices.Add("inbreker=" + chosen);
     }
 
+
+    // ---------- Kastdeuren ----------
+
+    readonly List<Transform> closetDoors = new List<Transform>();
+    readonly List<Quaternion> closetDoorsOpen = new List<Quaternion>();
+    readonly List<Quaternion> closetDoorsClosed = new List<Quaternion>();
+
+    /// <summary>
+    /// De deuren van de kast ("Left Door" / "Right Door") staan in de prefab open. Bij de start gaan ze dicht;
+    /// pas als het publiek "kast" kiest (of bij gelijkspel) zwaaien ze open. Dicht = de draaiing rond hun eigen
+    /// scharnieras (lokale Z, zoals in de prefab) eraf halen.
+    /// </summary>
+    void SetupClosetDoors()
+    {
+        if (closet == null) return;
+        foreach (var t in closet.GetComponentsInChildren<Transform>(true))
+        {
+            if (t == closet.transform || t.name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) < 0) continue;
+            Quaternion open = t.localRotation;
+            var twist = new Quaternion(0f, 0f, open.z, open.w);
+            float len = Mathf.Sqrt(twist.z * twist.z + twist.w * twist.w);
+            Quaternion closed = len < 0.0001f ? open : open * Quaternion.Inverse(new Quaternion(0f, 0f, twist.z / len, twist.w / len));
+            closetDoors.Add(t);
+            closetDoorsOpen.Add(open);
+            closetDoorsClosed.Add(closed);
+            t.localRotation = closed;
+        }
+        if (closetDoors.Count == 0) Debug.LogWarning("[Home Together] Geen kastdeuren ('Door' in de naam) gevonden onder " + closet.name);
+    }
+
+    IEnumerator OpenClosetDoors(float seconds)
+    {
+        for (float t = 0f; t < seconds; t += Time.deltaTime)
+        {
+            float k = Mathf.SmoothStep(0f, 1f, t / seconds);
+            for (int i = 0; i < closetDoors.Count; i++)
+                if (closetDoors[i] != null) closetDoors[i].localRotation = Quaternion.Slerp(closetDoorsClosed[i], closetDoorsOpen[i], k);
+            yield return null;
+        }
+        for (int i = 0; i < closetDoors.Count; i++)
+            if (closetDoors[i] != null) closetDoors[i].localRotation = closetDoorsOpen[i];
+    }
     IEnumerator SweepTorch()
     {
         while (robTorch != null && robTorch.enabled)
