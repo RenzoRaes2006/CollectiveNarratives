@@ -816,7 +816,9 @@ public class HomeTogetherGame : MonoBehaviour
                 // Marley aan de lijn, dicht bij zijn linkeroor. Achter hem flitst Marleys licht aan en uit.
                 StorySounds.Play("marley", head.position - head.right * 0.15f, 1f, false, head);
                 marleyKnows = true;
-                yield return new WaitForSeconds(2.5f);
+                // Het licht flitst bij "I'll turn my light on", aan het einde van de zin.
+                var marleyClip = StorySounds.Get("marley");
+                yield return new WaitForSeconds(marleyClip != null ? Mathf.Max(2.5f, marleyClip.length - 1.5f) : 2.5f);
                 for (int i = 0; i < 3; i++)
                 {
                     marleyLight.intensity = 6f; yield return new WaitForSeconds(0.4f);
