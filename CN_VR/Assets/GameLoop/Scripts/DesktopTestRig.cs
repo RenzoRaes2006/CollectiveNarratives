@@ -1,0 +1,300 @@
+using System.Collections.Generic;
+using Unity.XR.CoreUtils;
+using UnityEngine;
+using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using UnityEngine.XR.Interaction.Toolkit.Interactors;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
+
+/// <summary>
+/// Testen zonder VR-bril: toetsenbord en muis besturen de XR Origin.
+/// Staat alleen aan als er geen bril actief is (of als HomeTogetherGame.desktopTest op "Altijd" staat).
+/// In de bril bestaat dit object niet, dus Kevin ziet de hulptekst nooit.
+///
+/// WASD / pijltjes = lopen, Shift = sneller, rechtermuisknop ingedrukt = rondkijken (of pijltjes links/rechts = draaien),
+/// E of linkermuisknop = pakken / loslaten (briefje, zaklamp) of vasthouden (telefoon, hendel),
+/// F = deur open/dicht (alleen als hij niet op slot is), V = door muren lopen aan/uit, H = hulp verbergen.
+/// De testtoetsen van de game loop blijven: 1 / 2 = keuze A / B, J = samen-actie gelukt, N = stap overslaan.
+/// </summary>
+[DisallowMultipleComponent]
+public class DesktopTestRig : MonoBehaviour
+{
+    public float eyeHeight = 1.6f;
+    public float walkSpeed = 1.5f;
+    public float runSpeed = 3f;
+    public float turnSpeed = 90f;
+    public float mouseSensitivity = 0.15f;
+    public float reach = 2.2f;
+    public bool noclip;
+
+    HomeTogetherGame game;
+    HomeTogetherGame.TestMode mode;
+    XROrigin origin;
+    Transform body, cam;
+    CharacterController cc;
+    DesktopInteractor hand;
+    float pitch, fallSpeed;
+    bool showHelp = true;
+    string lookingAt = "", feedback = "";
+    float feedbackUntil;
+    readonly List<Behaviour> poseDrivers = new List<Behaviour>();
+
+    public static bool Active { get; private set; }
+
+    static bool HeadsetActive => XRSettings.isDeviceActive;
+
+    /// <summary>Maakt de testbesturing als er geen bril is. Geeft null terug in de bril.</summary>
+    public static DesktopTestRig Ensure(HomeTogetherGame game, HomeTogetherGame.TestMode mode)
+    {
+        if (mode == HomeTogetherGame.TestMode.Nooit) return null;
+        if (mode == HomeTogetherGame.TestMode.Auto && HeadsetActive) return null;
+        var existing = FindFirstObjectByType<DesktopTestRig>();
+        if (existing != null) return existing;
+        var go = new GameObject("Testbesturing zonder bril (alleen Editor/PC)");
+        var rig = go.AddComponent<DesktopTestRig>();
+        rig.game = game;
+        rig.mode = mode;
+        return rig;
+    }
+
+    void Start()
+    {
+        origin = FindFirstObjectByType<XROrigin>();
+        var camera = origin != null && origin.Camera != null ? origin.Camera : Camera.main;
+        if (camera == null)
+        {
+            Debug.LogWarning("[Home Together] Testbesturing: geen camera gevonden.");
+            enabled = false;
+            return;
+        }
+        cam = camera.transform;
+        body = origin != null ? origin.transform : cam;
+        cc = body.GetComponent<CharacterController>();
+
+        // Zonder bril schrijven de TrackedPoseDrivers niets, maar zet ze uit zodat ze onze muis niet overschrijven.
+        foreach (var b in cam.GetComponents<Behaviour>())
+            if (b != null && b.enabled && b.GetType().Name == "TrackedPoseDriver") { b.enabled = false; poseDrivers.Add(b); }
+
+        pitch = 0f;
+        cam.localRotation = Quaternion.identity;
+
+        var handGo = new GameObject("Testhand");
+        handGo.transform.SetParent(cam, false);
+        handGo.transform.localPosition = new Vector3(0.12f, -0.18f, 0.45f);
+        hand = handGo.AddComponent<DesktopInteractor>();
+
+        Active = true;
+        Debug.Log("[Home Together] Geen VR-bril: testbesturing met toetsenbord en muis staat aan (H = hulp).");
+    }
+
+    void OnDestroy()
+    {
+        Active = false;
+        foreach (var b in poseDrivers) if (b != null) b.enabled = true;
+    }
+
+    void Update()
+    {
+        if (cam == null) return;
+        // Komt er toch een bril bij (Auto), dan geeft de testbesturing alles terug.
+        if (mode == HomeTogetherGame.TestMode.Auto && HeadsetActive)
+        {
+            Debug.Log("[Home Together] VR-bril gevonden: testbesturing gaat uit.");
+            if (hand != null) Destroy(hand.gameObject);
+            Destroy(gameObject);
+            return;
+        }
+#if ENABLE_INPUT_SYSTEM
+        var kb = Keyboard.current;
+        var mouse = Mouse.current;
+        if (kb == null) return;
+        float dt = Time.deltaTime;
+
+        // Rondkijken
+        float yaw = 0f;
+        if (mouse != null && mouse.rightButton.isPressed)
+        {
+            Vector2 d = mouse.delta.ReadValue() * mouseSensitivity;
+            yaw += d.x;
+            pitch = Mathf.Clamp(pitch - d.y, -80f, 80f);
+        }
+        if (kb.leftArrowKey.isPressed) yaw -= turnSpeed * dt;
+        if (kb.rightArrowKey.isPressed) yaw += turnSpeed * dt;
+        if (Mathf.Abs(yaw) > 0f) body.RotateAround(cam.position, Vector3.up, yaw);
+
+        // Lopen (zoals de joystick: de speler beweegt zichzelf, de game loop nooit)
+        Vector2 move = Vector2.zero;
+        if (kb.wKey.isPressed || kb.upArrowKey.isPressed) move.y += 1f;
+        if (kb.sKey.isPressed || kb.downArrowKey.isPressed) move.y -= 1f;
+        if (kb.dKey.isPressed) move.x += 1f;
+        if (kb.aKey.isPressed) move.x -= 1f;
+        Vector3 fwd = Story.FlatDir(Vector3.zero, cam.forward, Vector3.forward);
+        Vector3 right = Vector3.Cross(Vector3.up, fwd);
+        float speed = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed ? runSpeed : walkSpeed;
+        Vector3 delta = (fwd * move.y + right * move.x).normalized * speed * dt;
+
+        if (kb.vKey.wasPressedThisFrame) { noclip = !noclip; Say(noclip ? "Door muren lopen: AAN" : "Door muren lopen: UIT"); }
+        if (kb.hKey.wasPressedThisFrame) showHelp = !showHelp;
+
+        if (cc != null && cc.enabled && !noclip)
+        {
+            fallSpeed = cc.isGrounded ? -1f : Mathf.Max(fallSpeed - 9.81f * dt, -20f);
+            cc.Move(delta + Vector3.up * fallSpeed * dt);
+        }
+        else
+        {
+            if (kb.spaceKey.isPressed) delta += Vector3.up * speed * dt;
+            if (kb.leftCtrlKey.isPressed) delta -= Vector3.up * speed * dt;
+            body.position += delta;
+        }
+
+        // Kijkdoel
+        var target = Aim(out var door, out var hitName);
+        lookingAt = target != null ? NameOf(target) : door != null ? door.name + (door.Locked ? " (op slot)" : "") : hitName;
+
+        // Pakken / vasthouden
+        bool press = kb.eKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame);
+        bool held = kb.eKey.isPressed || (mouse != null && mouse.leftButton.isPressed);
+        if (hand.Holding != null)
+        {
+            bool isGrab = hand.Holding is XRGrabInteractable;
+            if ((isGrab && press) || (!isGrab && !held) || !(hand.Holding as Behaviour).isActiveAndEnabled) hand.Release();
+        }
+        else if (press)
+        {
+            if (target != null)
+            {
+                if (!target.isActiveAndEnabled) Say(NameOf(target) + " kan nu niet (nog op slot in het verhaal)");
+                else if (!hand.Grab(target)) Say(NameOf(target) + " kan niet vastgepakt worden");
+            }
+            else if (door != null) ToggleDoor(door);
+        }
+
+        if (kb.fKey.wasPressedThisFrame && door != null) ToggleDoor(door);
+#endif
+    }
+
+    void LateUpdate()
+    {
+        if (cam == null) return;
+        cam.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        // Ooghoogte: zonder bril staat de camera anders op de vloer of op de standaardhoogte van de rig.
+        var p = cam.position;
+        cam.position = new Vector3(p.x, body.position.y + eyeHeight, p.z);
+    }
+
+    XRBaseInteractable Aim(out VRDoor door, out string hitName)
+    {
+        door = null;
+        hitName = "";
+        var hits = Physics.RaycastAll(cam.position, cam.forward, reach, ~0, QueryTriggerInteraction.Collide);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        foreach (var h in hits)
+        {
+            var col = h.collider;
+            if (col.transform.IsChildOf(body) || col.transform.IsChildOf(cam)) continue;
+            if (hand.Holding != null && col.transform.IsChildOf(hand.Holding.transform)) continue;
+            var interactable = col.GetComponentInParent<XRBaseInteractable>(true);
+            var d = col.GetComponentInParent<VRDoor>();
+            if (d != null && (interactable == null || d.IsHandle(interactable))) { door = d; return null; }
+            if (interactable != null) return interactable;
+            if (col.isTrigger) continue; // triggerzones (bv. van de inbreker) blokkeren niet
+            hitName = col.name;
+            return null; // muur of meubel ervoor
+        }
+        return null;
+    }
+
+    void ToggleDoor(VRDoor door)
+    {
+        if (door.Locked) { Say(door.name + " zit op slot"); return; }
+        if (Mathf.Abs(door.OpenAngle) > 5f) { door.SwingTo(0f, 120f); return; }
+        // Open van de speler weg.
+        Transform t = door.transform;
+        Vector3 hinge = t.position;
+        Vector3 center = Story.Center(t.gameObject);
+        Vector3 up = t.parent != null ? t.parent.up : Vector3.up;
+        Vector3 a = hinge + Quaternion.AngleAxis(90f, up) * (center - hinge);
+        Vector3 b = hinge + Quaternion.AngleAxis(-90f, up) * (center - hinge);
+        float sign = Vector3.Distance(a, cam.position) > Vector3.Distance(b, cam.position) ? 1f : -1f;
+        door.SwingTo(sign * 90f, 120f);
+    }
+
+    static string NameOf(XRBaseInteractable i) => i == null ? "" : i.name;
+
+    void Say(string text)
+    {
+        feedback = text;
+        feedbackUntil = Time.time + 2.5f;
+        Debug.Log("[Testbesturing] " + text);
+    }
+
+    void OnGUI()
+    {
+        if (cam == null) return;
+        // Richtpunt
+        var c = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        GUI.Label(new Rect(c.x - 5, c.y - 12, 20, 24), "+");
+
+        if (!showHelp) return;
+        string vote = game != null ? game.ActiveVoteText : "";
+        string text =
+            "TESTBESTURING (geen bril)  -  H = verbergen\n" +
+            "WASD lopen, Shift sneller, rechtermuis = kijken, pijltjes = draaien\n" +
+            "E/klik = pakken of vasthouden, F = deur, V = door muren (" + (noclip ? "aan" : "uit") + "; Spatie/Ctrl = op/neer)\n" +
+            "1/2 = keuze A/B, J = samen-actie gelukt, N = stap overslaan\n" +
+            "\nStap: " + (game != null ? game.step : "?") +
+            (vote != "" ? "\nStemming: " + vote : "") +
+            (hand != null && hand.Holding != null ? "\nIn je hand: " + hand.Holding.name : "") +
+            (lookingAt != "" ? "\nJe kijkt naar: " + lookingAt : "") +
+            (Time.time < feedbackUntil ? "\n" + feedback : "");
+        var style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 13, wordWrap = true };
+        GUI.Box(new Rect(10, 10, 520, 190), text, style);
+    }
+}
+
+/// <summary>Een "hand" voor de testbesturing: pakt via de XR Interaction Manager vast wat je aanwijst.</summary>
+public class DesktopInteractor : XRBaseInteractor
+{
+    XRBaseInteractable pending, holding;
+
+    public XRBaseInteractable Holding => holding != null && isSelectActive && IsSelecting(holding) ? holding : null;
+
+    public override bool isSelectActive => base.isSelectActive && holding != null;
+
+    protected override void Awake()
+    {
+        base.Awake();
+        interactionLayers = -1;
+    }
+
+    public bool Grab(XRBaseInteractable target)
+    {
+        holding = target;
+        pending = target;
+        if (target is IXRSelectInteractable s && interactionManager != null && interactionManager.CanSelect(this, s))
+            interactionManager.SelectEnter((IXRSelectInteractor)this, s);
+        if (IsSelecting(target)) return true;
+        holding = null;
+        pending = null;
+        return false;
+    }
+
+    public void Release()
+    {
+        holding = null;
+        pending = null;
+        if (hasSelection && interactionManager != null)
+            for (int i = interactablesSelected.Count - 1; i >= 0; i--)
+                interactionManager.SelectExit((IXRSelectInteractor)this, interactablesSelected[i]);
+    }
+
+    public override void GetValidTargets(List<IXRInteractable> targets)
+    {
+        targets.Clear();
+        if (pending != null && pending.isActiveAndEnabled) targets.Add(pending);
+    }
+}

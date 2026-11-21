@@ -46,6 +46,12 @@ public class VRDoor : MonoBehaviour
         }
     }
 
+    /// <summary>Heeft de deur een klink waaraan je hem in VR kunt openen?</summary>
+    public bool HasHandles => handles.Exists(h => h != null);
+
+    /// <summary>Is dit een van de klinken van deze deur?</summary>
+    public bool IsHandle(XRBaseInteractable interactable) => interactable is XRSimpleInteractable s && handles.Contains(s);
+
     /// <summary>Huidige openingshoek in graden (0 = dicht).</summary>
     public float OpenAngle => currentOffset;
 

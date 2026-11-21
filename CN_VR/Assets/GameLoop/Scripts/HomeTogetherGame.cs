@@ -23,6 +23,7 @@ using UnityEngine.InputSystem;
 ///
 /// Testen in de Editor zonder telefoons: 1 / 2 = optie A / B tijdens een stemming, J = samen-actie gelukt,
 /// N = huidige wachtstap overslaan. Zonder server beslist Kevin zelf bij elke keuze (wat hij eerst doet).
+/// Zonder VR-bril start automatisch de testbesturing (DesktopTestRig): WASD + muis, E = pakken, F = deur, H = hulp.
 /// </summary>
 [DisallowMultipleComponent]
 public class HomeTogetherGame : MonoBehaviour
@@ -59,9 +60,17 @@ public class HomeTogetherGame : MonoBehaviour
     public static GameObject Named(string name, Vector3 near) =>
         string.IsNullOrWhiteSpace(name) ? null : Story.FindExactNear(name, near);
 
+    public enum TestMode { Auto, Altijd, Nooit }
+
+    [Header("Testen zonder VR-bril")]
+    [Tooltip("Auto: toetsenbord/muis-besturing als er geen bril actief is. Altijd: ook met bril. Nooit: uit.")]
+    public TestMode desktopTest = TestMode.Auto;
+
     [Header("Algemeen")]
     public bool autoStart = true;
     [Tooltip("Seconden voor een stemming.")] public int voteSeconds = 12;
+    [Tooltip("Een stemming duurt minstens zo lang, ook als Kevin het briefje meteen neerlegt.")] public int minVoteSeconds = 5;
+    [Tooltip("Hoe dicht (meter) Kevin bij het midden van de kast moet staan om 'in de kast' te zijn.")] public float closetRadius = 0.75f;
     [Tooltip("Seconden voor 'inbreker' als de telefoon niet opgenomen werd.")] public int fastVoteSeconds = 8;
     [Tooltip("Seconden voor de samen-actie.")] public int togetherSeconds = 5;
     [Tooltip("Even wachten na het laden voor het verhaal start.")] public float startDelay = 2f;
@@ -263,12 +272,24 @@ public class HomeTogetherGame : MonoBehaviour
 
     bool Online => session != null && session.Connected && !string.IsNullOrEmpty(session.Code);
 
+    /// <summary>Tekst over de lopende stemming, voor de testbesturing in de Editor (nooit in de bril).</summary>
+    public string ActiveVoteText
+    {
+        get
+        {
+            var v = activeVote;
+            if (v == null || !Options.TryGetValue(v.id, out var o)) return "";
+            return $"{v.id}  (1 = {o[0]}, 2 = {o[1]}){(v.forced != "" ? "  gekozen: " + v.forced : "")}";
+        }
+    }
+
     IEnumerator Start()
     {
         if (!autoStart) yield break;
         StorySounds.SetOverrides(soundOverrides);
         Names = objects;
         yield return null; // eerst VRDoorSetup en de XR-rig
+        DesktopTestRig.Ensure(this, desktopTest);
         float t0 = Time.time;
         while ((head = Story.Head) == null && Time.time - t0 < 10f) yield return null;
         if (head == null)
@@ -366,11 +387,19 @@ public class HomeTogetherGame : MonoBehaviour
                     windowParts.Add(t.gameObject);
         }
 
-        // Lichten in huis (de boom gaat als laatste uit).
+        // Lichten in huis (de boom gaat als laatste uit). Alleen lampen van het huis zelf, niet de straatlantaarns.
+        Transform houseRoot = null;
+        var treeObj = Named(Names.tree, P.tree);
+        for (var t = treeObj != null ? treeObj.transform : null; t != null; t = t.parent)
+            if (t.name.IndexOf("House", StringComparison.OrdinalIgnoreCase) >= 0) houseRoot = t;
+        Bounds houseBounds = houseRoot != null ? Story.Bounds(houseRoot.gameObject) : new Bounds(P.tree, Vector3.zero);
+        houseBounds.Expand(0.5f);
         foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
         {
             if (!l.enabled || l.type == LightType.Directional || l.transform.IsChildOf(transform) || l == flashBeam) continue;
-            if (Story.FlatDist(l.transform.position, P.tree) > 18f) continue;
+            if (houseRoot != null ? !(l.transform.IsChildOf(houseRoot) || houseBounds.Contains(l.transform.position))
+                                  : Story.FlatDist(l.transform.position, P.tree) > 18f) continue;
+            if (flashlight != null && l.transform.IsChildOf(flashlight.transform)) continue;
             if (Story.FlatDist(l.transform.position, P.tree) < 1.5f) treeLights.Add(l); else houseLights.Add(l);
         }
 
@@ -513,7 +542,14 @@ public class HomeTogetherGame : MonoBehaviour
     bool PhonePicked() => (phoneTouch != null && phoneTouch.isSelected) || Dwell("phone", Near(P.phone, 0.9f) && Looking(P.phone, 30f), 1f);
     bool FlashTaken() => (flashGrab != null && flashGrab.isSelected) || Dwell("flash", Near(P.flashlight, 0.8f) && Looking(P.flashlight, 30f), 1.2f);
     bool LeverPulled() => (leverTouch != null && leverTouch.isSelected) || Dwell("lever", Near(P.fuseBox, 0.9f) && Looking(P.fuseBox, 30f), 1.2f);
-    bool InCloset() => Near(P.closet, 0.6f);
+    bool InCloset() => Near(P.closet, closetRadius);
+
+    /// <summary>Een deur zonder klink kan Kevin niet vastpakken: die gaat open zodra hij ervoor staat (als hij niet op slot is).</summary>
+    void OpenIfNoHandle(VRDoor door, Vector3 at, float angle)
+    {
+        if (door != null && !door.Locked && !door.HasHandles && Mathf.Abs(door.OpenAngle) < 5f && Near(at, 1.2f))
+            door.SwingTo(angle, 90f);
+    }
 
     bool OutsideWindow()
     {
@@ -672,15 +708,19 @@ public class HomeTogetherGame : MonoBehaviour
 
         var vote = new VoteRun { id = "telefoon" };
         StartCoroutine(Vote(vote, voteSeconds));
-        bool everGrabbed = false;
+        bool everGrabbed = false, everRead = false;
         float lookAway = 0f, readStart = Time.time;
         while (!vote.done && Time.time - readStart < voteSeconds)
         {
             bool grabbed = noteGrab != null && noteGrab.isSelected;
             everGrabbed |= grabbed;
             bool reading = grabbed || (Near(P.note, 1.8f) && Looking(P.note, 40f));
+            everRead |= reading;
             lookAway = reading ? 0f : lookAway + Time.deltaTime;
-            if ((everGrabbed && !grabbed) || lookAway > 1.5f) break; // briefje neergelegd
+            // Briefje neergelegd (of, zonder vastpakken, weggekeken). Het publiek krijgt altijd minstens minVoteSeconds.
+            // Las Kevin het briefje nooit (na 40 s gestart), dan loopt de stemming gewoon helemaal.
+            bool putDown = everGrabbed ? !grabbed : everRead && lookAway > 1.5f;
+            if (putDown && Time.time - readStart >= minVoteSeconds) break;
             yield return null;
         }
         vote.stop = true;
@@ -811,7 +851,11 @@ public class HomeTogetherGame : MonoBehaviour
         {
             // Laten (of gelijkspel): Kevin opent zelf. De hond gromt en rent weg. Daarna zware stappen in de sneeuw.
             if (backDoor != null) backDoor.Locked = false;
-            yield return WaitFor(() => backDoor == null ? Near(doorInside, 0.7f) : Mathf.Abs(backDoor.OpenAngle) > 25f, 25f);
+            yield return WaitFor(() =>
+            {
+                OpenIfNoHandle(backDoor, doorInside, backDoorOpenAngle);
+                return backDoor == null ? Near(doorInside, 0.7f) : Mathf.Abs(backDoor.OpenAngle) > 25f;
+            }, 25f);
             if (vote.winner == "") KevinDecides(vote, "buiten");
             StorySounds.Stop(scratch);
             StorySounds.Play("growl", Floor(doorOutside, 0.4f), 0.9f);
@@ -930,6 +974,7 @@ public class HomeTogetherGame : MonoBehaviour
         string chosen = "";
         yield return WaitFor(() =>
         {
+            if (cellarOpen) OpenIfNoHandle(cellarDoor, P.cellarDoor, cellarDoorOpenAngle);
             if (cellarOpen && LeverPulled()) chosen = "kelder";
             else if (flashOpen && FlashTaken()) chosen = "zaklamp";
             return chosen != "";
@@ -947,8 +992,10 @@ public class HomeTogetherGame : MonoBehaviour
             StorySounds.Stop(fuseHum);
             cellarStrip.intensity = 0f;
             LightsBack();
-            if (cellarDoor != null) { cellarDoor.SwingTo(0f, 400f); cellarDoor.Locked = true; StorySounds.Play("slam", P.cellarDoor, 0.4f); }
+            // Dicht, maar NIET op slot: Kevin staat in de kelder en moet er zelf weer uit kunnen.
+            if (cellarDoor != null) { cellarDoor.SwingTo(0f, 400f); cellarDoor.Locked = false; StorySounds.Play("slam", P.cellarDoor, 0.4f); }
             yield return new WaitForSeconds(2f);
+            if (cellarDoor != null && !cellarDoor.HasHandles) StartCoroutine(KeepCellarPassable());
             if (dogInside) StorySounds.Play("bark", P.tree, 0.8f); else StorySounds.Play("creak", Floor(head.position - head.forward * 1.5f, 0f), 0.8f);
         }
         else
@@ -960,7 +1007,12 @@ public class HomeTogetherGame : MonoBehaviour
             if (flashBeam != null) flashBeam.enabled = true;
             if (!(flashGrab != null && flashGrab.isSelected))
             {
-                // Geen hand (bv. Editor zonder bril): de zaklamp schijnt mee met het hoofd.
+                // Geen hand (Kevin keek er alleen naar): de zaklamp schijnt mee met het hoofd.
+                // Rigidbody kinematic, anders valt hij met de zwaartekracht van het hoofd weg.
+                var flashBody = flashlight.GetComponent<Rigidbody>();
+                if (flashBody != null) { flashBody.isKinematic = true; flashBody.useGravity = false; }
+                foreach (var c in flashlight.GetComponentsInChildren<Collider>()) c.enabled = false;
+                flashGrab.enabled = false;
                 flashlight.transform.SetParent(head, false);
                 flashlight.transform.localPosition = new Vector3(0.2f, -0.25f, 0.3f);
                 flashlight.transform.localRotation = Quaternion.identity;
@@ -975,6 +1027,15 @@ public class HomeTogetherGame : MonoBehaviour
             yield return new WaitForSeconds(3f);
             StorySounds.Play("creak", Floor(P.tree, 0f), 0.8f);
             if (dogInside) StorySounds.Play("bark", P.tree, 0.8f);
+        }
+    }
+
+    IEnumerator KeepCellarPassable()
+    {
+        while (!step.StartsWith("10") && step != "Einde")
+        {
+            OpenIfNoHandle(cellarDoor, P.cellarDoor, cellarDoorOpenAngle);
+            yield return null;
         }
     }
 
