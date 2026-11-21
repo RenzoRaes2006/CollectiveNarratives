@@ -30,15 +30,15 @@ public class DesktopTestRig : MonoBehaviour
     public float reach = 2.2f;
     public bool noclip;
 
-    HomeTogetherGame game;
     HomeTogetherGame.TestMode mode;
     XROrigin origin;
     Transform body, cam;
     CharacterController cc;
     DesktopInteractor hand;
     float pitch, fallSpeed;
-    bool showHelp = true;
-    string lookingAt = "", feedback = "";
+    bool showHelp;
+    float helpUntil;
+    string feedback = "";
     float feedbackUntil;
     readonly List<Behaviour> poseDrivers = new List<Behaviour>();
 
@@ -55,7 +55,6 @@ public class DesktopTestRig : MonoBehaviour
         if (existing != null) return existing;
         var go = new GameObject("Testbesturing zonder bril (alleen Editor/PC)");
         var rig = go.AddComponent<DesktopTestRig>();
-        rig.game = game;
         rig.mode = mode;
         return rig;
     }
@@ -87,6 +86,7 @@ public class DesktopTestRig : MonoBehaviour
         hand = handGo.AddComponent<DesktopInteractor>();
 
         Active = true;
+        helpUntil = Time.time + 12f;
         Debug.Log("[Home Together] Geen VR-bril: testbesturing met toetsenbord en muis staat aan (H = hulp).");
     }
 
@@ -137,7 +137,7 @@ public class DesktopTestRig : MonoBehaviour
         Vector3 delta = (fwd * move.y + right * move.x).normalized * speed * dt;
 
         if (kb.vKey.wasPressedThisFrame) { noclip = !noclip; Say(noclip ? "Door muren lopen: AAN" : "Door muren lopen: UIT"); }
-        if (kb.hKey.wasPressedThisFrame) showHelp = !showHelp;
+        if (kb.hKey.wasPressedThisFrame) { showHelp = !(showHelp || Time.time < helpUntil); helpUntil = 0f; }
 
         if (cc != null && cc.enabled && !noclip)
         {
@@ -152,8 +152,7 @@ public class DesktopTestRig : MonoBehaviour
         }
 
         // Kijkdoel
-        var target = Aim(out var door, out var hitName);
-        lookingAt = target != null ? NameOf(target) : door != null ? door.name + (door.Locked ? " (op slot)" : "") : hitName;
+        var target = Aim(out var door, out _);
 
         // Pakken / vasthouden
         bool press = kb.eKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame);
@@ -239,20 +238,18 @@ public class DesktopTestRig : MonoBehaviour
         var c = new Vector2(Screen.width / 2f, Screen.height / 2f);
         GUI.Label(new Rect(c.x - 5, c.y - 12, 20, 24), "+");
 
-        if (!showHelp) return;
-        string vote = game != null ? game.ActiveVoteText : "";
+        // Geen stap, stemming of uitleg over het verhaal in beeld: dat moet je uit de wereld zelf halen,
+        // net als Kevin in de bril. De stap staat in de Console. Alleen de toetsen, kort bij de start of met H.
+        if (Time.time < feedbackUntil)
+            GUI.Label(new Rect(c.x - 200, c.y + 30, 400, 24), feedback, new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter });
+        if (!showHelp && Time.time > helpUntil) return;
         string text =
-            "TESTBESTURING (geen bril)  -  H = verbergen\n" +
+            "Toetsen (H = tonen/verbergen)\n" +
             "WASD lopen, Shift sneller, rechtermuis = kijken, pijltjes = draaien\n" +
-            "E/klik = pakken of vasthouden, F = deur, V = door muren (" + (noclip ? "aan" : "uit") + "; Spatie/Ctrl = op/neer)\n" +
-            "1/2 = keuze A/B, J = samen-actie gelukt, N = stap overslaan\n" +
-            "\nStap: " + (game != null ? game.step : "?") +
-            (vote != "" ? "\nStemming: " + vote : "") +
-            (hand != null && hand.Holding != null ? "\nIn je hand: " + hand.Holding.name : "") +
-            (lookingAt != "" ? "\nJe kijkt naar: " + lookingAt : "") +
-            (Time.time < feedbackUntil ? "\n" + feedback : "");
-        var style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 13, wordWrap = true };
-        GUI.Box(new Rect(10, 10, 520, 190), text, style);
+            "E/klik = pakken of vasthouden, F = deur, V = door muren\n" +
+            "Publiek nadoen: 1/2 = keuze A/B, J = samen-actie, N = stap overslaan";
+        var style = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 12, wordWrap = true };
+        GUI.Box(new Rect(10, 10, 440, 80), text, style);
     }
 }
 

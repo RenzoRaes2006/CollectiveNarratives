@@ -317,8 +317,12 @@ public class HomeTogetherGame : MonoBehaviour
         yield return RunStory();
     }
 
+    string loggedStep = "";
+
     void Update()
     {
+        // De stap staat alleen in de Console (en de Inspector), nooit in beeld.
+        if (step != loggedStep) { loggedStep = step; if (step != "") Debug.Log("[Home Together] Stap: " + step); }
 #if ENABLE_INPUT_SYSTEM
         var kb = Keyboard.current;
         if (kb == null) return;
@@ -501,6 +505,17 @@ public class HomeTogetherGame : MonoBehaviour
         flashGrab = Story.AddInteractable<XRGrabInteractable>(flashlight);
         flashBeam = flashlight.GetComponentInChildren<Light>(true);
         if (flashBeam != null) flashBeam.enabled = false;
+        if (flashBeam != null)
+        {
+            // Greep zo leggen dat de straal naar voren wijst: in de hand (en met de testhand) schijnt hij waar je naar wijst.
+            Vector3 beamFwd = flashBeam.transform.forward;
+            Vector3 up = Mathf.Abs(Vector3.Dot(beamFwd, flashlight.transform.up)) > 0.9f ? flashlight.transform.forward : flashlight.transform.up;
+            var grip = new GameObject("Greep (straal vooruit)").transform;
+            grip.SetParent(flashlight.transform, false);
+            grip.SetPositionAndRotation(flashlight.transform.position, Quaternion.LookRotation(beamFwd, up));
+            flashGrab.attachTransform = grip;
+            flashGrab.useDynamicAttach = false;
+        }
         flashGrab.enabled = false; // op slot tot het publiek "zaklamp" kiest
     }
 
@@ -557,7 +572,14 @@ public class HomeTogetherGame : MonoBehaviour
     bool PhonePicked() => (phoneTouch != null && phoneTouch.isSelected) || Dwell("phone", Near(P.phone, 0.9f) && Looking(P.phone, 30f), 1f);
     bool FlashTaken() => (flashGrab != null && flashGrab.isSelected) || Dwell("flash", Near(P.flashlight, 0.8f) && Looking(P.flashlight, 30f), 1.2f);
     bool LeverPulled() => (leverTouch != null && leverTouch.isSelected) || Dwell("lever", Near(P.fuseBox, 0.9f) && Looking(P.fuseBox, 30f), 1.2f);
-    bool InCloset() => Near(P.closet, closetRadius);
+    bool InCloset()
+    {
+        if (Near(P.closet, closetRadius)) return true;
+        if (closet == null) return false;
+        var b = Story.Bounds(closet);
+        b.Expand(new Vector3(0.3f, 10f, 0.3f));
+        return b.Contains(head.position);
+    }
 
     /// <summary>Een deur zonder klink kan Kevin niet vastpakken: die gaat open zodra hij ervoor staat (als hij niet op slot is).</summary>
     void OpenIfNoHandle(VRDoor door, Vector3 at, float angle)
@@ -947,17 +969,46 @@ public class HomeTogetherGame : MonoBehaviour
         yield return new WaitUntil(() => vote.done);
     }
 
+    // Wat de stroomuitval uitzet, om het bij de hendel terug te zetten.
+    readonly List<Light> darkened = new List<Light>();
+    LightmapData[] savedLightmaps;
+    UnityEngine.Rendering.AmbientMode savedAmbientMode;
+    Color savedAmbient;
+    float savedAmbientIntensity, savedReflection;
+
+    bool IsStoryLight(Light l) =>
+        l.transform.IsChildOf(transform) || (flashlight != null && l.transform.IsChildOf(flashlight.transform)) || l == flashBeam;
+
     IEnumerator Blackout()
     {
         lightsOn = false;
-        foreach (var l in houseLights) if (l != null) l.enabled = false;
+        darkened.Clear();
+        // ALLE lampen gaan uit (huis, straat, maan), behalve die van het verhaal zelf (zaklamp, lichtstreep, kastlampje).
+        var tree = new List<Light>();
+        foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
+        {
+            if (!l.enabled || IsStoryLight(l)) continue;
+            if (treeLights.Contains(l)) { tree.Add(l); continue; }
+            l.enabled = false;
+            darkened.Add(l);
+        }
+        // Gebakken licht (lightmaps) en omgevingslicht ook weg, anders blijft alles verlicht.
+        savedLightmaps = LightmapSettings.lightmaps;
+        LightmapSettings.lightmaps = new LightmapData[0];
+        savedAmbientMode = RenderSettings.ambientMode;
+        savedAmbient = RenderSettings.ambientLight;
+        savedAmbientIntensity = RenderSettings.ambientIntensity;
+        savedReflection = RenderSettings.reflectionIntensity;
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+        RenderSettings.ambientLight = new Color(0.015f, 0.02f, 0.04f); // heel zwak blauw: net je handen zien
+        RenderSettings.reflectionIntensity = 0.05f;
         if (fridgeHum != null) fridgeHum.Pause();
         yield return new WaitForSeconds(0.6f);
         // De boom gaat als laatste uit, lichtje per lichtje van boven naar beneden.
-        treeLights.Sort((a, b) => b.transform.position.y.CompareTo(a.transform.position.y));
-        foreach (var l in treeLights)
+        tree.Sort((a, b) => b.transform.position.y.CompareTo(a.transform.position.y));
+        foreach (var l in tree)
         {
-            if (l != null) l.enabled = false;
+            if (l != null) { l.enabled = false; darkened.Add(l); }
             yield return new WaitForSeconds(0.35f);
         }
     }
@@ -965,8 +1016,13 @@ public class HomeTogetherGame : MonoBehaviour
     void LightsBack()
     {
         lightsOn = true;
-        foreach (var l in houseLights) if (l != null) l.enabled = true;
-        foreach (var l in treeLights) if (l != null) l.enabled = true;
+        foreach (var l in darkened) if (l != null) l.enabled = true;
+        darkened.Clear();
+        if (savedLightmaps != null) LightmapSettings.lightmaps = savedLightmaps;
+        RenderSettings.ambientMode = savedAmbientMode;
+        RenderSettings.ambientLight = savedAmbient;
+        RenderSettings.ambientIntensity = savedAmbientIntensity;
+        RenderSettings.reflectionIntensity = savedReflection;
         if (fridgeHum != null) fridgeHum.UnPause();
     }
 
@@ -1088,8 +1144,11 @@ public class HomeTogetherGame : MonoBehaviour
         if (closetOpen)
         {
             // Kastje gaat op een kier, warm lampje achter de latten. Staat het licht aan, dan klikt het ganglicht uit.
-            closetLight.intensity = 1.2f;
+            closetLight.intensity = 2f;
             StorySounds.Play("creak", P.closet, 0.6f, false, null, 1.4f);
+            // Kevin moet er echt in kunnen stappen (ook met de joystick): de kast houdt hem niet meer tegen.
+            if (closet != null)
+                foreach (var c in closet.GetComponentsInChildren<Collider>()) if (!c.isTrigger) c.enabled = false;
             if (lightsOn)
             {
                 Light hallLight = null;
@@ -1102,8 +1161,11 @@ public class HomeTogetherGame : MonoBehaviour
         if (windowOpen) OpenWindow();
 
         string chosen = "";
+        float nextLure = Time.time + 6f;
         yield return WaitFor(() =>
         {
+            // Lokken: de kast kraakt zacht zolang Kevin er niet is (het open raam lokt al met wind).
+            if (closetOpen && Time.time > nextLure) { StorySounds.Play("creak", P.closet, 0.5f, false, null, 1.4f); nextLure = Time.time + 6f; }
             if (closetOpen && InCloset()) chosen = "kast";
             else if (windowOpen && OutsideWindow()) chosen = "raam";
             return chosen != "";
