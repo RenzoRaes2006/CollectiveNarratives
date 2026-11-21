@@ -125,6 +125,8 @@ public class HomeTogetherGame : MonoBehaviour
         public Vector3 start, forward, right;
         public float floorY;
         public Vector3 tree, phone, note, flashlight, backDoor, attic, cellarDoor, fuseBox, gardenWindow, closet, marley, street;
+        /// <summary>Markers waarvan de plek uit een echt object in de scene komt.</summary>
+        public readonly HashSet<string> fromObject = new HashSet<string>();
 
         public Vector3 Get(string marker)
         {
@@ -167,58 +169,71 @@ public class HomeTogetherGame : MonoBehaviour
         return "";
     }
 
-    /// <summary>Berekent alle plekken: markers als die er zijn, anders een gok op basis van de objecten in de scene.</summary>
+    /// <summary>
+    /// Berekent alle plekken. Per plek: een marker die je met de hand verplaatste wint, anders het echte object
+    /// uit de scene (zie Objecten), anders de marker zoals hij staat, anders een gok.
+    /// </summary>
     public static Points ComputePoints(Vector3 startPos, Vector3 startForward, float floorY)
     {
         var p = new Points { start = startPos, floorY = floorY };
         p.forward = Story.Flat(startForward).sqrMagnitude > 0.001f ? Story.Flat(startForward).normalized : Vector3.forward;
         p.right = Vector3.Cross(Vector3.up, p.forward);
         Vector3 At(Vector3 v, float h) => new Vector3(v.x, floorY + h, v.z);
+        Vector3 Place(string marker, bool hasObject, Func<Vector3> fromObject, Vector3 guess)
+        {
+            var m = Story.MarkerTransform(marker);
+            var sm = m != null ? m.GetComponent<StoryMarker>() : null;
+            if (m != null && sm != null && !sm.volgObject) return m.position; // met de hand gezet
+            if (hasObject) { p.fromObject.Add(marker); return fromObject(); }
+            return m != null ? m.position : guess;
+        }
 
         var N = Names ?? new ObjectNames();
         var treeObj = Named(N.tree, startPos) ?? Story.FindExact("Christmas Tree", "ChristmasTree", "Kerstboom", "Ornamentals");
-        p.tree = treeObj != null ? Story.Center(treeObj) : Story.Marker("Story_Kerstboom", At(startPos + p.forward * 3f, 1f));
+        p.tree = Place("Story_Kerstboom", treeObj != null, () => Story.Center(treeObj), At(startPos + p.forward * 3f, 1f));
 
         var noteObj = Named(N.note, p.tree);
         if (noteObj == null) { var sn = FindFirstObjectByType<StickyNote>(FindObjectsInactive.Include); if (sn != null) noteObj = sn.gameObject; }
-        p.note = noteObj != null ? Story.Center(noteObj) : Story.Marker("Story_Briefje", At(startPos + p.right * 4f, 1.5f));
+        p.note = Place("Story_Briefje", noteObj != null, () => Story.Center(noteObj), At(startPos + p.right * 4f, 1.5f));
 
         var phoneObj = Named(N.phone, p.tree) ?? FindPhone();
-        p.phone = phoneObj != null ? Story.Center(phoneObj) : Story.Marker("Story_Telefoon", At(startPos - p.forward * 2.5f, 1.4f));
+        p.phone = Place("Story_Telefoon", phoneObj != null, () => Story.Center(phoneObj), At(startPos - p.forward * 2.5f, 1.4f));
 
         var flashObj = Named(N.flashlight, p.note) ?? FindFlashlight();
         Vector3 towardStart = Story.FlatDir(p.note, startPos, -p.right);
-        p.flashlight = flashObj != null ? flashObj.transform.position
-            : Story.Marker("Story_Zaklamp", At(p.note + towardStart * 0.7f + Vector3.Cross(Vector3.up, towardStart) * 0.6f, 0.95f));
+        p.flashlight = Place("Story_Zaklamp", flashObj != null, () => flashObj.transform.position,
+            At(p.note + towardStart * 0.7f + Vector3.Cross(Vector3.up, towardStart) * 0.6f, 0.95f));
 
         var doorObj = Named(N.backDoor, p.tree);
         var rob = Named(N.burglar, p.tree);
-        Vector3 outsideBackDoor = doorObj != null ? At(Story.Center(doorObj) + Story.FlatDir(p.tree, Story.Center(doorObj), -p.right) * 1.2f, 0f)
-            : rob != null ? rob.transform.position : At(startPos - p.right * 5f, 0f);
-        p.backDoor = Story.Marker("Story_Achterdeur", outsideBackDoor);
+        p.backDoor = Place("Story_Achterdeur", doorObj != null || rob != null,
+            () => doorObj != null ? At(Story.Center(doorObj) + Story.FlatDir(p.tree, Story.Center(doorObj), -p.right) * 1.2f, 0f) : rob.transform.position,
+            At(startPos - p.right * 5f, 0f));
 
         var atticObj = Named(N.attic, p.tree);
-        p.attic = atticObj != null ? new Vector3(Story.Center(atticObj).x, Story.Bounds(atticObj).min.y, Story.Center(atticObj).z)
-            : Story.Marker("Story_Zolderluik", At(Vector3.Lerp(startPos, p.backDoor, 0.6f), 2.6f));
+        p.attic = Place("Story_Zolderluik", atticObj != null,
+            () => new Vector3(Story.Center(atticObj).x, Story.Bounds(atticObj).min.y, Story.Center(atticObj).z),
+            At(Vector3.Lerp(startPos, p.backDoor, 0.6f), 2.6f));
 
         var cellarObj = Named(N.cellarDoor, p.tree);
-        var stairs = Story.FindExact("Stairs");
-        p.cellarDoor = cellarObj != null ? At(Story.Center(cellarObj), 1f)
-            : Story.Marker("Story_Kelderdeur", stairs != null ? At(Story.Center(stairs), 1f) : At(Vector3.Lerp(startPos, p.backDoor, 0.5f) - p.forward * 1.5f, 1f));
+        var stairs = cellarObj != null ? null : Story.FindExact("Stairs");
+        p.cellarDoor = Place("Story_Kelderdeur", cellarObj != null || stairs != null,
+            () => At(Story.Center(cellarObj != null ? cellarObj : stairs), 1f),
+            At(Vector3.Lerp(startPos, p.backDoor, 0.5f) - p.forward * 1.5f, 1f));
 
         var fuseObj = Named(N.fuseBox, p.cellarDoor);
-        p.fuseBox = fuseObj != null ? Story.Center(fuseObj) : Story.Marker("Story_Zekeringkast", At(p.cellarDoor - p.forward * 1.5f, 1.4f));
+        p.fuseBox = Place("Story_Zekeringkast", fuseObj != null, () => Story.Center(fuseObj), At(p.cellarDoor - p.forward * 1.5f, 1.4f));
 
         var win = Named(N.gardenWindow, p.tree) ?? Story.FindNearest("Exterior_Window", p.tree, 8f);
-        p.gardenWindow = win != null ? Story.Center(win) : Story.Marker("Story_Tuinraam", At(p.tree + p.forward * 1.5f, 1.2f));
+        p.gardenWindow = Place("Story_Tuinraam", win != null, () => Story.Center(win), At(p.tree + p.forward * 1.5f, 1.2f));
 
         var closetObj = Named(N.closet, p.tree);
-        p.closet = closetObj != null ? Story.Center(closetObj) : Story.Marker("Story_Kast", At(Vector3.Lerp(startPos, p.backDoor, 0.7f) + p.forward, 1f));
+        p.closet = Place("Story_Kast", closetObj != null, () => Story.Center(closetObj), At(Vector3.Lerp(startPos, p.backDoor, 0.7f) + p.forward, 1f));
 
         var marleyObj = Named(N.marleyHouse, p.note);
         Vector3 kitchenSide = Story.FlatDir(p.tree, p.note, p.right);
-        p.marley = marleyObj != null ? At(Story.Bounds(marleyObj).ClosestPoint(p.note), 0f) : Story.Marker("Story_Marley", At(p.note + kitchenSide * 18f, 0f));
-        p.street = Story.Marker("Story_Straat", At(startPos - p.forward * 14f, 0f));
+        p.marley = Place("Story_Marley", marleyObj != null, () => At(Story.Bounds(marleyObj).ClosestPoint(p.note), 0f), At(p.note + kitchenSide * 18f, 0f));
+        p.street = Place("Story_Straat", false, null, At(startPos - p.forward * 14f, 0f));
         return p;
     }
 

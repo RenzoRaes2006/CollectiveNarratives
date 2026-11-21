@@ -7,6 +7,10 @@ using UnityEngine;
 public class StoryMarker : MonoBehaviour
 {
     [TextArea] public string uitleg = "";
+
+    [Tooltip("Aan: de marker springt vanzelf naar het echte object (bv. ChristmasTree (2)). " +
+             "Sleep je de marker zelf, dan gaat dit uit en blijft hij waar jij hem zet.")]
+    public bool volgObject = true;
     public Color color = new Color(1f, 0.6f, 0.1f);
     public float radius = 0.25f;
 
