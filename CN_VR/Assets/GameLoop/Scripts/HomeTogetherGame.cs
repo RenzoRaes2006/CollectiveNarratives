@@ -917,8 +917,10 @@ public class HomeTogetherGame : MonoBehaviour
             yield return new WaitForSeconds(0.8f);
             if (dog != null)
             {
-                yield return Story.Walk(dog.transform, Floor(head.position, 0f), 3.5f, dogAnim);
-                yield return Story.Walk(dog.transform, Floor(P.tree - Story.FlatDir(P.start, P.tree, P.forward) * 0.6f, 0f), 3f, dogAnim);
+                // Rent tussen Kevins benen door: naar net voorbij Kevin (niet recht op hem in), dan naar de boom.
+                Vector3 past = Floor(doorInside - doorOut * 1.2f, 0f); // recht door de open deur, langs Kevin
+                yield return Story.Walk(dog.transform, past, 3.5f, dogAnim, -1f);
+                yield return Story.Walk(dog.transform, Floor(P.tree - Story.FlatDir(P.start, P.tree, P.forward) * 0.6f, 0f), 3f, dogAnim, 0.2f, 2.5f);
             }
             dogInside = true;
             yield return new WaitForSeconds(2f);
@@ -1290,7 +1292,11 @@ public class HomeTogetherGame : MonoBehaviour
         Vector3 openCenters = Vector3.zero;
         foreach (var t in closet.GetComponentsInChildren<Transform>(true))
         {
-            if (t == closet.transform || t.name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) < 0) continue;
+            if (t == closet.transform) continue;
+            // Deur = naam met "Door", of een deel dat in de prefab flink rond zijn eigen Z-as opengedraaid staat.
+            float twistDeg = 2f * Mathf.Atan2(Mathf.Abs(t.localRotation.z), Mathf.Abs(t.localRotation.w)) * Mathf.Rad2Deg;
+            bool named = t.name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!named && !(twistDeg > 20f && t.GetComponent<Renderer>() != null)) continue;
             Quaternion open = t.localRotation;
             var twist = new Quaternion(0f, 0f, open.z, open.w);
             float len = Mathf.Sqrt(twist.z * twist.z + twist.w * twist.w);
@@ -1301,6 +1307,8 @@ public class HomeTogetherGame : MonoBehaviour
             closetDoorsClosed.Add(closed);
             t.localRotation = closed;
         }
+        var cb = Story.Bounds(closet);
+        Debug.Log($"[Home Together] Kast '{closet.name}': {closetDoors.Count} deuren, midden {cb.center}, grootte {cb.size}");
         if (closetDoors.Count == 0) { Debug.LogWarning("[Home Together] Geen kastdeuren ('Door' in de naam) gevonden onder " + closet.name); return; }
         // Open deuren steken naar voren uit: daar is de voorkant van de kast.
         closetFront = Story.FlatDir(Story.Center(closet), openCenters / closetDoors.Count, Story.FlatDir(P.closet, doorInside, -P.forward));

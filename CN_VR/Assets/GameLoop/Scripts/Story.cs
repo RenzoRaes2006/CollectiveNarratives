@@ -237,12 +237,31 @@ public static class Story
     /// dus de route wordt op een raster gezocht met de colliders in de scene). Lukt dat niet, dan rechtdoor.
     /// Draait mee, animatie loopt alleen tijdens het stappen.
     /// </summary>
-    public static IEnumerator Walk(Transform who, Vector3 target, float speed, Animator anim = null, float radius = 0.2f)
+    /// <param name="maxDetour">Is de route om de muren heen langer dan zoveel keer de rechte afstand (of is er geen route),
+    /// dan blijft het personage staan in plaats van een rare omweg (bv. terug naar buiten) of door een muur.
+    /// 0 = altijd lopen (zonder route: rechtdoor).</param>
+    public static IEnumerator Walk(Transform who, Vector3 target, float speed, Animator anim = null, float radius = 0.2f, float maxDetour = 0f)
     {
         if (who == null) yield break;
-        if (anim != null) anim.speed = 1f;
         target.y = who.position.y;
-        var path = FindPath(who, who.position, target, radius) ?? new List<Vector3> { target };
+        var path = radius < 0f ? new List<Vector3> { target } : FindPath(who, who.position, target, radius); // radius < 0 = rechtdoor
+        if (maxDetour > 0f)
+        {
+            float straight = FlatDist(who.position, target);
+            float len = 0f;
+            Vector3 at = who.position;
+            if (path != null) foreach (var p in path) { len += FlatDist(at, p); at = p; }
+            if (path == null || (straight > 0.5f && len > straight * maxDetour))
+            {
+                Debug.Log($"[Home Together] {who.name}: geen goede route naar {target} (omweg {len:0.0} m voor {straight:0.0} m), blijft staan.");
+                yield break;
+            }
+        }
+        if (path == null) path = new List<Vector3> { target };
+        if (anim != null) anim.speed = 1f;
+        // Tijdens het lopen botst het personage niet met de speler (de speler duwt hem anders terug).
+        var cols = new List<Collider>();
+        foreach (var c in who.GetComponentsInChildren<Collider>()) if (c.enabled && !c.isTrigger) { c.enabled = false; cols.Add(c); }
         foreach (var point in path)
         {
             var p = new Vector3(point.x, who.position.y, point.z);
@@ -255,6 +274,7 @@ public static class Story
                 yield return null;
             }
         }
+        foreach (var c in cols) if (c != null) c.enabled = true;
         if (anim != null) anim.speed = 0f;
     }
 
