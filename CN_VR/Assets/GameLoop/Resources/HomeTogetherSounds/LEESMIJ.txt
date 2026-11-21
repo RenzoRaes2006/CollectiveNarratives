@@ -1,0 +1,5 @@
+Zet hier de echte geluiden van Home Together. De bestandsnaam (zonder extensie) moet precies de naam zijn:
+ring, tick, hum, engine, slam, clunk, step, snowstep, creak, roll, scratch, whine, bark, growl,
+whisper, wind, siren, jingle, breath, marley, mum, magnet, gate, snowslide, glass.
+Voorbeeld: bark.wav. Ontbreekt een bestand, dan speelt het automatisch gemaakte plaatshouder-geluid.
+Lusgeluiden (tick, hum, engine, scratch, wind, siren, breath, ring) moeten naadloos kunnen herhalen.

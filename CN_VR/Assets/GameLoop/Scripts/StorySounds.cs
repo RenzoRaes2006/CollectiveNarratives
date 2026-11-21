@@ -42,7 +42,9 @@ public static class StorySounds
         if (overrides.TryGetValue(name, out var clip)) return clip;
         if (!cache.TryGetValue(name, out clip) || clip == null)
         {
-            clip = Make(name);
+            // Echte opname: Assets/GameLoop/Resources/HomeTogetherSounds/<naam>.wav (of .mp3/.ogg). Anders plaatshouder.
+            clip = Resources.Load<AudioClip>("HomeTogetherSounds/" + name);
+            if (clip == null) clip = Make(name);
             cache[name] = clip;
         }
         return clip;

@@ -44,6 +44,9 @@ public class DesktopTestRig : MonoBehaviour
 
     public static bool Active { get; private set; }
 
+    /// <summary>Door muren lopen staat aan (dan mag je ook boven de grond zweven).</summary>
+    public static bool Noclip { get; private set; }
+
     static bool HeadsetActive => XRSettings.isDeviceActive;
 
     /// <summary>Maakt de testbesturing als er geen bril is. Geeft null terug in de bril.</summary>
@@ -93,6 +96,7 @@ public class DesktopTestRig : MonoBehaviour
     void OnDestroy()
     {
         Active = false;
+        Noclip = false;
         foreach (var b in poseDrivers) if (b != null) b.enabled = true;
     }
 
@@ -136,7 +140,7 @@ public class DesktopTestRig : MonoBehaviour
         float speed = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed ? runSpeed : walkSpeed;
         Vector3 delta = (fwd * move.y + right * move.x).normalized * speed * dt;
 
-        if (kb.vKey.wasPressedThisFrame) { noclip = !noclip; Say(noclip ? "Door muren lopen: AAN" : "Door muren lopen: UIT"); }
+        if (kb.vKey.wasPressedThisFrame) { noclip = !noclip; Noclip = noclip; Say(noclip ? "Door muren lopen: AAN" : "Door muren lopen: UIT"); }
         if (kb.hKey.wasPressedThisFrame) { showHelp = !(showHelp || Time.time < helpUntil); helpUntil = 0f; }
 
         if (cc != null && cc.enabled && !noclip)

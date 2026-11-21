@@ -318,6 +318,26 @@ public class HomeTogetherGame : MonoBehaviour
     }
 
     string loggedStep = "";
+    Transform originT;
+    Vector3 lastSafe;
+    bool guardReady;
+
+    /// <summary>
+    /// Rand van de wereld: staat er geen grond (collider) meer onder de speler, dan blijft hij op de laatste plek
+    /// met grond staan, alsof er een onzichtbare rand is. Zo valt niemand door de map. Dit is geen teleport:
+    /// de speler wordt alleen tegengehouden, zoals een muur doet.
+    /// </summary>
+    void LateUpdate()
+    {
+        if (!guardReady || originT == null || DesktopTestRig.Noclip) return;
+        bool ground = Physics.Raycast(originT.position + Vector3.up * 0.5f, Vector3.down, 2.5f, ~0, QueryTriggerInteraction.Ignore);
+        if (ground) { lastSafe = originT.position; return; }
+        var cc = originT.GetComponent<CharacterController>();
+        bool was = cc != null && cc.enabled;
+        if (was) cc.enabled = false;
+        originT.position = lastSafe;
+        if (was) cc.enabled = true;
+    }
 
     void Update()
     {
@@ -343,6 +363,9 @@ public class HomeTogetherGame : MonoBehaviour
         session = FindFirstObjectByType<SessionClient>();
         Debug.Log("[Home Together] Start game loop. " + (Online ? "Online, sessie " + session.Code : "Offline: Kevin beslist zelf (1/2 = keuze forceren in de Editor)."));
         P = ComputePoints(head.position, head.forward, Story.FloorY(head));
+        var xrOrigin = FindFirstObjectByType<Unity.XR.CoreUtils.XROrigin>();
+        originT = xrOrigin != null ? xrOrigin.transform : null;
+        if (originT != null) { lastSafe = originT.position; guardReady = true; }
 
         // Achterdeur en kelderdeur: de VR-deur het dichtst bij de marker.
         var backDoorObj = Named(Names.backDoor, P.tree);
