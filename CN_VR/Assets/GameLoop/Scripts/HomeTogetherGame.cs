@@ -69,6 +69,7 @@ public class HomeTogetherGame : MonoBehaviour
     [Header("Algemeen")]
     public bool autoStart = true;
     [Tooltip("Seconden voor een stemming.")] public int voteSeconds = 12;
+    [Tooltip("Sneeuw rond het huis (laag om op te lopen, hoopjes en vallende sneeuw).")] public bool snowAroundHouse = true;
     [Tooltip("Een stemming duurt minstens zo lang, ook als Kevin het briefje meteen neerlegt.")] public int minVoteSeconds = 5;
     [Tooltip("Hoe dicht (meter) Kevin bij het midden van de kast moet staan om 'in de kast' te zijn.")] public float closetRadius = 0.75f;
     [Tooltip("Seconden voor 'inbreker' als de telefoon niet opgenomen werd.")] public int fastVoteSeconds = 8;
@@ -305,6 +306,11 @@ public class HomeTogetherGame : MonoBehaviour
         Names = objects;
         yield return null; // eerst VRDoorSetup en de XR-rig
         DesktopTestRig.Ensure(this, desktopTest);
+        if (snowAroundHouse)
+        {
+            var cam = Story.Head;
+            HomeSnow.Create(transform, FindHouseRoot(Named(Names.tree, cam != null ? cam.position : Vector3.zero)), cam != null ? cam.position : Vector3.zero);
+        }
         float t0 = Time.time;
         while ((head = Story.Head) == null && Time.time - t0 < 10f) yield return null;
         if (head == null)
@@ -430,10 +436,7 @@ public class HomeTogetherGame : MonoBehaviour
         }
 
         // Lichten in huis (de boom gaat als laatste uit). Alleen lampen van het huis zelf, niet de straatlantaarns.
-        Transform houseRoot = null;
-        var treeObj = Named(Names.tree, P.tree);
-        for (var t = treeObj != null ? treeObj.transform : null; t != null; t = t.parent)
-            if (t.name.IndexOf("House", StringComparison.OrdinalIgnoreCase) >= 0) houseRoot = t;
+        Transform houseRoot = FindHouseRoot(Named(Names.tree, P.tree));
         Bounds houseBounds = houseRoot != null ? Story.Bounds(houseRoot.gameObject) : new Bounds(P.tree, Vector3.zero);
         houseBounds.Expand(0.5f);
         foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
@@ -450,6 +453,15 @@ public class HomeTogetherGame : MonoBehaviour
     }
 
     Vector3 Floor(Vector3 v, float h) => new Vector3(v.x, P.floorY + h, v.z);
+
+    /// <summary>Het huis van Kevin: de bovenste parent van de kerstboom met "House" in de naam.</summary>
+    static Transform FindHouseRoot(GameObject treeObj)
+    {
+        Transform root = null;
+        for (var t = treeObj != null ? treeObj.transform : null; t != null; t = t.parent)
+            if (t.name.IndexOf("House", StringComparison.OrdinalIgnoreCase) >= 0) root = t;
+        return root;
+    }
 
     VRDoor NearestDoor(Vector3 near, float max, VRDoor except)
     {
