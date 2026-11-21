@@ -1896,7 +1896,7 @@ Transform:
   m_GameObject: {fileID: 57235122}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -256.92737, y: 7.0158286, z: -43.562428}
+  m_LocalPosition: {x: -256.92828, y: 6.930147, z: -43.686802}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1916,6 +1916,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Waar de telefoon hangt. Staat er geen object met 'Phone' in de naam, dan
     komt hier een eenvoudige telefoon.
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &57496561
@@ -4693,7 +4694,7 @@ Transform:
   m_GameObject: {fileID: 148861342}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -262.0098, y: 8.85, z: -46.0224}
+  m_LocalPosition: {x: -263.85754, y: 8.54316, z: -44.953804}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4712,6 +4713,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Zolderluik in het plafond van de gang.
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &150103645
@@ -13096,7 +13098,7 @@ Transform:
   m_GameObject: {fileID: 429397970}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -251.03787, y: 6.25, z: -31.415714}
+  m_LocalPosition: {x: -246.18248, y: 6.25, z: -42.863766}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -13115,6 +13117,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Voordeur van Marleys huis (buren).
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &433463977
@@ -16612,7 +16615,7 @@ Transform:
   m_GameObject: {fileID: 529756576}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -268.55188, y: 7.25, z: -50.247986}
+  m_LocalPosition: {x: -260.8357, y: 7.25, z: -53.530445}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -16632,6 +16635,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Bij de kelderdeur. De dichtstbijzijnde VR-deur wordt de kelderdeur (op
     slot tot 'kelder').
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &530468515
@@ -17725,7 +17729,7 @@ Transform:
   m_GameObject: {fileID: 565694063}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -255.95645, y: 7.2150073, z: -51.05754}
+  m_LocalPosition: {x: -253.47012, y: 7.4239063, z: -46.98153}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -17744,6 +17748,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Midden van de kerstboom (woonkamer).
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &569942687
@@ -38450,6 +38455,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Op straat, waar het busje stopt.
+  volgObject: 1
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &1171059765
@@ -38789,7 +38795,7 @@ Transform:
   m_GameObject: {fileID: 1181534264}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -270.04916, y: 7.65, z: -50.33833}
+  m_LocalPosition: {x: -257.455, y: 6.9598403, z: -54.44626}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -38808,6 +38814,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Zekeringkast met hendel (in de kelder), op ooghoogte.
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1 &1181865584
@@ -45940,7 +45947,7 @@ Transform:
   m_GameObject: {fileID: 1423889476}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -260.183, y: 6.035, z: -42.504}
+  m_LocalPosition: {x: -251.79082, y: 6.25, z: -55.43634}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -45960,6 +45967,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Net BUITEN de achterdeur, waar de hond en de inbreker staan. De dichtstbijzijnde
     VR-deur wordt de achterdeur.
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &1428950349
@@ -48759,6 +48767,14 @@ PrefabInstance:
     - target: {fileID: 2995209075690996819, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
       propertyPath: m_SizeDelta.y
       value: 0.1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2995209075690996828, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
+      propertyPath: m_text
+      value: 'Kevin,
+
+        Don''t forget to lock all doors!
+
+        Mom x'
       objectReference: {fileID: 0}
     - target: {fileID: 2995209075690996828, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
       propertyPath: m_fontSize
@@ -56224,7 +56240,7 @@ Transform:
   m_GameObject: {fileID: 1755314324}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -264.699, y: 7.061998, z: -46.05}
+  m_LocalPosition: {x: -264.45468, y: 7.061998, z: -45.970684}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -56243,6 +56259,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Midden van de lattenkast (Closet) waar Kevin zich verstopt.
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &1759219555
@@ -59173,7 +59190,7 @@ Transform:
   m_GameObject: {fileID: 1892256436}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -255.41031, y: 7.580754, z: -48.87658}
+  m_LocalPosition: {x: -255.41025, y: 7.630754, z: -48.877586}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -59192,6 +59209,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: De post-it op de koelkast (StickyNote).
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &1895125526
@@ -61162,7 +61180,7 @@ Transform:
   m_GameObject: {fileID: 1951661039}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -256.23856, y: 7.2, z: -48.471622}
+  m_LocalPosition: {x: -256.23856, y: 7.2, z: -50.621}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -61182,6 +61200,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Zaklamp op het aanrecht. Staat er geen object met 'Flashlight' in de naam,
     dan komt hier een eenvoudige zaklamp.
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &1956544595
@@ -61761,6 +61780,26 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1165908689143028446, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.70692366
+      objectReference: {fileID: 0}
+    - target: {fileID: 1165908689143028446, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.70692366
+      objectReference: {fileID: 0}
+    - target: {fileID: 1165908689143028446, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0.016091794
+      objectReference: {fileID: 0}
+    - target: {fileID: 1165908689143028446, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0.016091794
+      objectReference: {fileID: 0}
+    - target: {fileID: 1165908689143028446, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: -110
+      objectReference: {fileID: 0}
     - target: {fileID: 2477227102389268278, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
       propertyPath: m_Name
       value: Closet
@@ -61804,6 +61843,26 @@ PrefabInstance:
     - target: {fileID: 2966517831582201228, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6533017472562268340, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.70547646
+      objectReference: {fileID: 0}
+    - target: {fileID: 6533017472562268340, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.70547646
+      objectReference: {fileID: 0}
+    - target: {fileID: 6533017472562268340, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0.047989223
+      objectReference: {fileID: 0}
+    - target: {fileID: 6533017472562268340, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0.047989223
+      objectReference: {fileID: 0}
+    - target: {fileID: 6533017472562268340, guid: c7d01e2440a207c40b575de5b59f614d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 120
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -65732,8 +65791,29 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 78e3fb7cdd4eb104d812ae3e3311efd6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HomeTogetherGame
+  objects:
+    tree: ChristmasTree (2)
+    phone: Phone prefab
+    note: StickyNote_Fridge
+    flashlight: Flashlight Grabbable
+    backDoor: Exterior_Door (1)
+    cellarDoor: Door_3B
+    fuseBox: Shield Metall
+    attic: RoofFloor (2)
+    gardenWindow: Exterior_WindowB
+    closet: Closet
+    dog: dog-animated
+    burglar: rob
+    marleyHouse: small_house_1 (2)
+    presents:
+    - present_01
+    - present_05
+  desktopTest: 0
   autoStart: 1
   voteSeconds: 12
+  snowAroundHouse: 1
+  minVoteSeconds: 5
+  closetRadius: 0.75
   fastVoteSeconds: 8
   togetherSeconds: 5
   startDelay: 2
@@ -65749,6 +65829,7 @@ MonoBehaviour:
   escaped: 0
   ending: 
   choices: []
+  closetPeekGap: 0.12
 --- !u!4 &2085431935
 Transform:
   m_ObjectHideFlags: 0
@@ -66390,7 +66471,7 @@ Transform:
   m_GameObject: {fileID: 2106865976}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -252.29172, y: 7.74416, z: -51.069294}
+  m_LocalPosition: {x: -252.4022, y: 7.7881603, z: -48.93107}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -66409,6 +66490,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StoryMarker
   uitleg: Midden van het tuinraam waar Kevin door ontsnapt.
+  volgObject: 0
   color: {r: 1, g: 0.6, b: 0.1, a: 1}
   radius: 0.25
 --- !u!1001 &2111876413
