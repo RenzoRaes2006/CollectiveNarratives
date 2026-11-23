@@ -48772,9 +48772,12 @@ PrefabInstance:
       propertyPath: m_text
       value: 'Kevin,
 
-        Don''t forget to lock all doors!
+        niet vergeten:
 
-        Mom x'
+        alles op slot!
+
+        - mama
+        x'
       objectReference: {fileID: 0}
     - target: {fileID: 2995209075690996828, guid: e2fb44b542f1aac488f0cfbecbc6695d, type: 3}
       propertyPath: m_fontSize
@@ -55548,7 +55551,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1717954561962503726, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -264.75
+      value: -255.36206
       objectReference: {fileID: 0}
     - target: {fileID: 1717954561962503726, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_LocalPosition.y
@@ -55556,7 +55559,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1717954561962503726, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -51.3
+      value: -49.676125
       objectReference: {fileID: 0}
     - target: {fileID: 1717954561962503726, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_LocalRotation.w
@@ -55609,6 +55612,10 @@ PrefabInstance:
     - target: {fileID: 5663893676086941514, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_TeleportModeCancel
       value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 6232745470614056090, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
+      propertyPath: m_Enabled
+      value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -65829,7 +65836,14 @@ MonoBehaviour:
   escaped: 0
   ending: 
   choices: []
+  noteReadSecondsWithoutVoice: 6
+  noteText: 'Kevin,
+
+    Don''t forget to lock all doors
+
+    Mom x'
   closetPeekGap: 0.12
+  closetDoorOpenAngle: 100
 --- !u!4 &2085431935
 Transform:
   m_ObjectHideFlags: 0

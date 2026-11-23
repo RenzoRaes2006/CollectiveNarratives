@@ -366,10 +366,64 @@ public class HomeTogetherGame : MonoBehaviour
         if (was) cc.enabled = true;
     }
 
+    Vector3 lastSafeHead;
+    bool headSafeKnown;
+    readonly Collider[] wallHits = new Collider[16];
+
+    /// <summary>Zit er een (niet-trigger) collider op lichaamshoogte op deze hoofdpositie? Vloer, trappen en de speler zelf tellen niet.</summary>
+    bool BlockedAt(Vector3 headPos)
+    {
+        float floorY = originT.position.y;
+        float top = headPos.y - 0.1f;
+        float bottom = floorY + 0.55f; // boven stapoffset: drempels, trappen en lage dingen blokkeren niet
+        if (top <= bottom + 0.05f) return false;
+        const float r = 0.2f;
+        var p1 = new Vector3(headPos.x, bottom + r, headPos.z);
+        var p2 = new Vector3(headPos.x, Mathf.Max(top - r, bottom + r), headPos.z);
+        int n = Physics.OverlapCapsuleNonAlloc(p1, p2, r, wallHits, ~0, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < n; i++)
+        {
+            var c = wallHits[i];
+            if (c == null || c.transform.IsChildOf(originT) || c is CharacterController) continue;
+            if (rob != null && c.transform.IsChildOf(rob.transform)) continue;
+            if (dog != null && c.transform.IsChildOf(dog.transform)) continue;
+            if (flashlight != null && c.transform.IsChildOf(flashlight.transform)) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Fysiek lopen in VR beweegt alleen het hoofd, niet de CharacterController. Loopt het hoofd in een muur of dichte deur,
+    /// dan schuift de speelruimte terug naar de laatste vrije plek (eerst per as, zodat je langs muren schuift).
+    /// </summary>
+    void KeepHeadOutOfWalls()
+    {
+        if (head == null || ClosetEnterable || step.StartsWith("9a")) { headSafeKnown = false; return; }
+        Vector3 h = head.position;
+        if (!headSafeKnown || Story.FlatDist(h, lastSafeHead) > 2f || !BlockedAt(h)) // sprong (verhaal-teleport) of vrij: accepteren
+        {
+            lastSafeHead = h; headSafeKnown = true; return;
+        }
+        Vector3 target = lastSafeHead;
+        var tryX = new Vector3(lastSafeHead.x, h.y, h.z);
+        var tryZ = new Vector3(h.x, h.y, lastSafeHead.z);
+        if (!BlockedAt(tryX)) target = tryX;
+        else if (!BlockedAt(tryZ)) target = tryZ;
+        Vector3 shift = new Vector3(target.x - h.x, 0f, target.z - h.z);
+        var cc = originT.GetComponent<CharacterController>();
+        bool was = cc != null && cc.enabled;
+        if (was) cc.enabled = false;
+        originT.position += shift;
+        if (was) cc.enabled = true;
+        lastSafeHead = new Vector3(target.x, h.y, target.z);
+    }
+
     void LateUpdate()
     {
         KeepHeadInCloset();
         if (!guardReady || originT == null || DesktopTestRig.Noclip) return;
+        KeepHeadOutOfWalls();
         bool ground = Physics.Raycast(originT.position + Vector3.up * 0.5f, Vector3.down, 2.5f, ~0, QueryTriggerInteraction.Ignore);
         if (ground) { lastSafe = originT.position; return; }
         var cc = originT.GetComponent<CharacterController>();
@@ -421,12 +475,17 @@ public class HomeTogetherGame : MonoBehaviour
         cellarDoor = cellarObj != null ? Story.MakeDoor(cellarObj) : NearestDoor(P.cellarDoor, 2.5f, backDoor);
         if (cellarDoor == backDoor) cellarDoor = null;
         if (cellarDoor != null) cellarDoor.Locked = true;
-        // Alleen de achterdeur (Exterior_Door (1)) en de kelderdeur (Interior_Door van Door_3B) kunnen ooit open.
-        // Alle andere VR-deuren gaan op slot.
-        int lockedDoors = 0;
+        // Binnendeuren (Interior_Door) kun je altijd zelf open maken. De achterdeur en kelderdeur volgen het verhaal.
+        // Alle andere buitendeuren gaan op slot.
+        int lockedDoors = 0, freeDoors = 0;
         foreach (var d in FindObjectsByType<VRDoor>(FindObjectsSortMode.None))
-            if (d != backDoor && d != cellarDoor) { d.Locked = true; lockedDoors++; }
-        Debug.Log($"[Home Together] Deuren: achterdeur '{(backDoor != null ? backDoor.name : "-")}', kelderdeur '{(cellarDoor != null ? cellarDoor.transform.parent?.name + "/" + cellarDoor.name : "-")}', {lockedDoors} andere deuren op slot.");
+        {
+            if (d == backDoor || d == cellarDoor) continue;
+            bool interior = d.name == "Interior_Door";
+            d.Locked = !interior;
+            if (interior) freeDoors++; else lockedDoors++;
+        }
+        Debug.Log($"[Home Together] Deuren: achterdeur '{(backDoor != null ? backDoor.name : "-")}', kelderdeur '{(cellarDoor != null ? cellarDoor.transform.parent?.name + "/" + cellarDoor.name : "-")}', {freeDoors} binnendeuren vrij, {lockedDoors} buitendeuren op slot.");
 
         // De inbreker staat nog niet klaar: zijn eigen loopscript gaat uit, wij sturen hem.
         rob = Named(Names.burglar, P.tree);
