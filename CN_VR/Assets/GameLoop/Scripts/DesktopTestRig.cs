@@ -48,6 +48,9 @@ public class DesktopTestRig : MonoBehaviour
     /// <summary>Door muren lopen staat aan (dan mag je ook boven de grond zweven).</summary>
     public static bool Noclip { get; private set; }
 
+    /// <summary>De game loop zet dit aan terwijl Kevin het briefje leest: niet lopen, niet pakken (rondkijken mag).</summary>
+    public static bool Frozen;
+
     static bool HeadsetActive => XRSettings.isDeviceActive;
 
     /// <summary>Maakt de testbesturing als er geen bril is. Geeft null terug in de bril.</summary>
@@ -98,6 +101,7 @@ public class DesktopTestRig : MonoBehaviour
     void OnDestroy()
     {
         Active = false;
+        Frozen = false;
         Noclip = false;
         foreach (var b in poseDrivers) if (b != null) b.enabled = true;
     }
@@ -140,7 +144,7 @@ public class DesktopTestRig : MonoBehaviour
         Vector3 fwd = Story.FlatDir(Vector3.zero, cam.forward, Vector3.forward);
         Vector3 right = Vector3.Cross(Vector3.up, fwd);
         float speed = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed ? runSpeed : walkSpeed;
-        Vector3 delta = (fwd * move.y + right * move.x).normalized * speed * dt;
+        Vector3 delta = Frozen ? Vector3.zero : (fwd * move.y + right * move.x).normalized * speed * dt;
 
         if (kb.vKey.wasPressedThisFrame) { noclip = !noclip; Noclip = noclip; Say(noclip ? "Door muren lopen: AAN" : "Door muren lopen: UIT"); }
         if (kb.hKey.wasPressedThisFrame) { showHelp = !(showHelp || Time.time < helpUntil); helpUntil = 0f; }
@@ -160,6 +164,7 @@ public class DesktopTestRig : MonoBehaviour
         // Kijkdoel
         var target = Aim(out var door, out _);
 
+        if (Frozen) return; // briefje lezen: even niets pakken
         // Pakken / vasthouden
         bool press = kb.eKey.wasPressedThisFrame || (mouse != null && mouse.leftButton.wasPressedThisFrame);
         bool held = kb.eKey.isPressed || (mouse != null && mouse.leftButton.isPressed);

@@ -72,7 +72,7 @@ public class HomeSnow : MonoBehaviour
         }
 
         if (falling) Flakes(new Vector3((outMinX + outMaxX) / 2f, house.max.y + 5f, (outMinZ + outMaxZ) / 2f),
-            new Vector3(outMaxX - outMinX, 0.1f, outMaxZ - outMinZ), groundY);
+            new Vector3(outMaxX - outMinX, 0.1f, outMaxZ - outMinZ), groundY, house);
     }
 
     /// <summary>Hoogte van de grond buiten: mediaan van een paar stralen naar beneden net naast het huis.</summary>
@@ -114,7 +114,7 @@ public class HomeSnow : MonoBehaviour
         return m;
     }
 
-    void Flakes(Vector3 top, Vector3 area, float groundY)
+    void Flakes(Vector3 top, Vector3 area, float groundY, Bounds house)
     {
         var go = new GameObject("Vallende sneeuw");
         go.transform.SetParent(transform, false);
@@ -163,6 +163,23 @@ public class HomeSnow : MonoBehaviour
         col.quality = ParticleSystemCollisionQuality.Low;
         col.lifetimeLoss = 1f;
         col.collidesWith = ~0;
+
+        // Binnen sneeuwt het nooit: vlokken die in het huis komen verdwijnen meteen (ook als het dak geen collider heeft).
+        var inside = new GameObject("Geen sneeuw binnen");
+        inside.transform.SetParent(transform, false);
+        inside.layer = 2; // Ignore Raycast
+        inside.transform.position = house.center;
+        var box = inside.AddComponent<BoxCollider>();
+        box.isTrigger = true;
+        box.size = house.size - new Vector3(0.1f, 0f, 0.1f);
+        var trig = ps.trigger;
+        trig.enabled = true;
+        trig.inside = ParticleSystemOverlapAction.Kill;
+        trig.enter = ParticleSystemOverlapAction.Kill;
+        trig.outside = ParticleSystemOverlapAction.Ignore;
+        trig.exit = ParticleSystemOverlapAction.Ignore;
+        trig.radiusScale = 1f;
+        trig.SetCollider(0, box);
 
         var r = go.GetComponent<ParticleSystemRenderer>();
         r.material = FlakeMaterial();

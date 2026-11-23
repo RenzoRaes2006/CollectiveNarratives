@@ -331,6 +331,7 @@ public class HomeTogetherGame : MonoBehaviour
     public GameObject TestRob => rob;
     public void TestSkip() => debugSkip = true;
     public void TestTogether() => debugTogether = true;
+    public void TestReadNote() { if (!noteReading) StartCoroutine(ReadNote()); }
     public bool TestForce(string option) { if (activeVote == null) return false; activeVote.forced = option; return true; }
     string loggedStep = "";
     Transform originT;
@@ -420,6 +421,12 @@ public class HomeTogetherGame : MonoBehaviour
         cellarDoor = cellarObj != null ? Story.MakeDoor(cellarObj) : NearestDoor(P.cellarDoor, 2.5f, backDoor);
         if (cellarDoor == backDoor) cellarDoor = null;
         if (cellarDoor != null) cellarDoor.Locked = true;
+        // Alleen de achterdeur (Exterior_Door (1)) en de kelderdeur (Interior_Door van Door_3B) kunnen ooit open.
+        // Alle andere VR-deuren gaan op slot.
+        int lockedDoors = 0;
+        foreach (var d in FindObjectsByType<VRDoor>(FindObjectsSortMode.None))
+            if (d != backDoor && d != cellarDoor) { d.Locked = true; lockedDoors++; }
+        Debug.Log($"[Home Together] Deuren: achterdeur '{(backDoor != null ? backDoor.name : "-")}', kelderdeur '{(cellarDoor != null ? cellarDoor.transform.parent?.name + "/" + cellarDoor.name : "-")}', {lockedDoors} andere deuren op slot.");
 
         // De inbreker staat nog niet klaar: zijn eigen loopscript gaat uit, wij sturen hem.
         rob = Named(Names.burglar, P.tree);
@@ -530,17 +537,98 @@ public class HomeTogetherGame : MonoBehaviour
         noteBody.useGravity = false;
         noteGrab = Story.AddInteractable<XRGrabInteractable>(note);
         noteGrab.throwOnDetach = false;
-        // Losgelaten = neergelegd: het briefje valt op het aanrecht of de vloer.
-        noteGrab.selectExited.AddListener(_ => StartCoroutine(DropNote()));
+        // Vastpakken (E / grip-knop aan de binnenkant van de controller) = lezen: groot in beeld, mama leest voor.
+        noteGrab.selectEntered.AddListener(_ => { if (!noteRead && !noteReading) StartCoroutine(ReadNote()); });
+        noteGrab.enabled = false; // pas vanaf stap 2 (de keuken)
     }
 
-    IEnumerator DropNote()
+    bool noteReading, noteRead;
+    readonly List<Behaviour> frozenMovement = new List<Behaviour>();
+
+    [Tooltip("Zo lang blijft het briefje in beeld als er (nog) geen voorlees-opname 'note' is.")]
+    public float noteReadSecondsWithoutVoice = 6f;
+
+    /// <summary>
+    /// Kevin leest het briefje: het komt groot voor zijn ogen, mama's stem leest het voor (geluid "note"), Kevin kan even
+    /// niet lopen. Daarna hangt het briefje terug op de koelkast en kan het niet meer gepakt worden.
+    /// </summary>
+    IEnumerator ReadNote()
     {
+        noteReading = true;
+        noteGrab.enabled = false; // loslaten uit de hand: wij nemen het over
         yield return null;
-        if (noteBody != null && noteGrab != null && !noteGrab.isSelected)
+
+        // Het briefje in de scene is "static" (samengevoegd met de keuken), dus verplaatsen werkt niet:
+        // we tonen een leeskopie voor Kevins ogen en verbergen ondertussen het echte briefje.
+        var originals = note.GetComponentsInChildren<Renderer>();
+        foreach (var r in originals) r.enabled = false;
+        var view = MakeNoteView();
+        SetPlayerFrozen(true);
+
+        var clip = StorySounds.Get("note");
+        bool hasVoice = Resources.Load<AudioClip>("HomeTogetherSounds/note") != null;
+        if (hasVoice) StorySounds.Play("note", head.position + head.forward * 0.3f, 1f, false, head);
+        float until = Time.time + (hasVoice && clip != null ? clip.length + 0.6f : noteReadSecondsWithoutVoice);
+        while (Time.time < until && !Skip()) yield return null;
+
+        // Terug op de koelkast, niet meer bruikbaar.
+        Destroy(view);
+        foreach (var r in originals) if (r != null) r.enabled = true;
+        SetPlayerFrozen(false);
+        noteRead = true;
+        noteReading = false;
+    }
+
+    /// <summary>Leeskopie van de post-it: 20 cm groot op 35 cm voor de ogen, met dezelfde kleur en tekst.</summary>
+    GameObject MakeNoteView()
+    {
+        var sticky = note.GetComponent<StickyNote>();
+        var paperT = note.transform.Find("Paper");
+        var paperR = paperT != null ? paperT.GetComponent<Renderer>() : note.GetComponentInChildren<Renderer>();
+
+        var view = new GameObject("Briefje (lezen)");
+        view.transform.SetParent(head, false);
+        view.transform.localPosition = new Vector3(0f, -0.02f, 0.35f);
+        view.transform.localRotation = Quaternion.identity;
+
+        var paper = Story.Block("Papier", PrimitiveType.Cube, view.transform.position, new Vector3(0.2f, 0.2f, 0.002f), new Color(1f, 0.92f, 0.35f), view.transform, false);
+        paper.transform.localPosition = Vector3.zero;
+        paper.transform.localRotation = Quaternion.identity;
+        if (paperR != null && paperR.sharedMaterial != null) paper.GetComponent<Renderer>().sharedMaterial = paperR.sharedMaterial;
+        paper.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+        var textGo = new GameObject("Tekst", typeof(RectTransform));
+        textGo.transform.SetParent(view.transform, false);
+        textGo.transform.localPosition = new Vector3(0f, 0f, -0.0015f); // net voor het papier, naar Kevin toe
+        var tmp = textGo.AddComponent<TMPro.TextMeshPro>();
+        var label = note.GetComponentInChildren<TMPro.TextMeshPro>();
+        tmp.text = sticky != null ? sticky.Text : (label != null ? label.text : "");
+        if (label != null && label.font != null) tmp.font = label.font;
+        tmp.color = sticky != null ? sticky.InkColor : new Color(0.1f, 0.16f, 0.45f);
+        tmp.alignment = TMPro.TextAlignmentOptions.Center;
+        tmp.enableAutoSizing = true;
+        tmp.fontSizeMin = 0.05f;
+        tmp.fontSizeMax = 2f;
+        tmp.rectTransform.sizeDelta = new Vector2(0.17f, 0.17f);
+        return view;
+    }
+
+    /// <summary>Kevin kan even niet lopen of draaien met de joystick (en de testbesturing staat stil). Kijken kan wel.</summary>
+    void SetPlayerFrozen(bool frozen)
+    {
+        DesktopTestRig.Frozen = frozen;
+        if (frozen)
         {
-            noteBody.isKinematic = false;
-            noteBody.useGravity = true;
+            frozenMovement.Clear();
+            var origin = FindFirstObjectByType<Unity.XR.CoreUtils.XROrigin>();
+            if (origin == null) return;
+            foreach (var b in origin.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.Locomotion.LocomotionProvider>())
+                if (b.enabled) { b.enabled = false; frozenMovement.Add(b); }
+        }
+        else
+        {
+            foreach (var b in frozenMovement) if (b != null) b.enabled = true;
+            frozenMovement.Clear();
         }
     }
 
@@ -585,7 +673,23 @@ public class HomeTogetherGame : MonoBehaviour
             flashGrab.attachTransform = grip;
             flashGrab.useDynamicAttach = false;
         }
+        // Losgelaten = valt (physics aan), anders blijft hij in de lucht hangen.
+        var flashBody = flashlight.GetComponent<Rigidbody>();
+        if (flashBody == null) { flashBody = flashlight.AddComponent<Rigidbody>(); flashBody.isKinematic = true; flashBody.useGravity = false; }
+        flashGrab.selectExited.AddListener(_ => StartCoroutine(DropAfterRelease(flashGrab, flashBody)));
         flashGrab.enabled = false; // op slot tot het publiek "zaklamp" kiest
+    }
+
+    IEnumerator DropAfterRelease(XRGrabInteractable grab, Rigidbody body)
+    {
+        yield return null; // XRI zet eerst zijn eigen rigidbody-stand terug
+        if (body != null && grab != null && !grab.isSelected && body.transform.parent != head)
+        {
+            body.isKinematic = false;
+            body.useGravity = true;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+        }
     }
 
     void SetupFuseBox()
@@ -779,6 +883,7 @@ public class HomeTogetherGame : MonoBehaviour
     IEnumerator Step2_TheNote()
     {
         step = "2 Het briefje";
+        if (noteGrab != null) noteGrab.enabled = true; // vanaf nu kan Kevin het briefje pakken
         float next = Time.time + 20f;
         while (!InKitchen() && !Skip())
         {
@@ -806,27 +911,17 @@ public class HomeTogetherGame : MonoBehaviour
     IEnumerator Step3_ThePhone()
     {
         step = "3 De telefoon (Kevin leest)";
-        // Wachten tot Kevin het briefje oppakt of ervoor staat te lezen. Na 40 s start de stemming toch.
-        float giveUp = Time.time + 40f;
-        yield return WaitFor(() => (noteGrab != null && noteGrab.isSelected)
-                                   || Dwell("read", Near(P.note, 1.4f) && Looking(P.note, 30f), 0.8f)
-                                   || Time.time > giveUp);
+        // Wachten tot Kevin het briefje pakt (E / grip). De gloed en het gezoem lokken hem. Na 60 s start de stemming toch.
+        float giveUp = Time.time + 60f;
+        yield return WaitFor(() => noteReading || noteRead || note == null || Time.time > giveUp);
 
+        // De stemming loopt zolang Kevin leest; klaar met lezen = stemming klaar (minstens minVoteSeconds).
         var vote = new VoteRun { id = "telefoon" };
         StartCoroutine(Vote(vote, voteSeconds));
-        bool everGrabbed = false, everRead = false;
-        float lookAway = 0f, readStart = Time.time;
+        float readStart = Time.time;
         while (!vote.done && Time.time - readStart < voteSeconds)
         {
-            bool grabbed = noteGrab != null && noteGrab.isSelected;
-            everGrabbed |= grabbed;
-            bool reading = grabbed || (Near(P.note, 1.8f) && Looking(P.note, 40f));
-            everRead |= reading;
-            lookAway = reading ? 0f : lookAway + Time.deltaTime;
-            // Briefje neergelegd (of, zonder vastpakken, weggekeken). Het publiek krijgt altijd minstens minVoteSeconds.
-            // Las Kevin het briefje nooit (na 40 s gestart), dan loopt de stemming gewoon helemaal.
-            bool putDown = everGrabbed ? !grabbed : everRead && lookAway > 1.5f;
-            if (putDown && Time.time - readStart >= minVoteSeconds) break;
+            if (!noteReading && Time.time - readStart >= minVoteSeconds) break;
             yield return null;
         }
         vote.stop = true;
