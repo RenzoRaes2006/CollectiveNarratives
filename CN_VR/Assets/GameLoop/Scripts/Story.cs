@@ -248,6 +248,10 @@ public static class Story
         if (who == null) yield break;
         target.y = who.position.y;
         var path = radius < 0f ? new List<Vector3> { target } : FindPath(who, who.position, target, radius); // radius < 0 = rechtdoor
+        // Geen route? Probeer smaller (tussen meubels door), het personage is in het echt smaller dan de veilige marge.
+        if (path == null && radius >= 0f)
+            foreach (float r in new[] { 0.12f, 0.07f })
+                if (r < radius && (path = FindPath(who, who.position, target, r)) != null) break;
         if (maxDetour > 0f)
         {
             float straight = FlatDist(who.position, target);
@@ -260,7 +264,13 @@ public static class Story
                 yield break;
             }
         }
-        if (path == null) path = new List<Vector3> { target };
+        if (path == null)
+        {
+            // Nooit door muren lopen: zonder route staat het personage meteen op zijn plek (buiten beeld meestal), met een melding.
+            Debug.LogWarning($"[Home Together] {who.name}: geen route naar {target}, wordt er direct neergezet in plaats van door muren te lopen.");
+            who.position = target;
+            yield break;
+        }
         if (anim != null) { anim.speed = 1f; anim.applyRootMotion = false; } // root motion zou het personage terugduwen
         // Tijdens het lopen botst het personage niet met de speler (de speler duwt hem anders terug).
         var cols = new List<Collider>();

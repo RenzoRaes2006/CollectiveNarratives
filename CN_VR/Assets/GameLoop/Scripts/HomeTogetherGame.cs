@@ -518,6 +518,8 @@ public class HomeTogetherGame : MonoBehaviour
         marleyLight = Story.MakeLight("Licht bij Marley", P.marley + Vector3.up * 3f, LightType.Point, new Color(1f, 0.85f, 0.6f), 0f, 25f, transform);
         cellarStrip = Story.MakeLight("Lichtstreep kelder", Floor(P.cellarDoor, 0.05f), LightType.Point, new Color(1f, 0.55f, 0.2f), 0f, 1.5f, transform);
 
+        SetupEscapeWindow();
+
         // Tuinraam: de delen in de buurt van de marker.
         var namedWin = Named(Names.gardenWindow, P.gardenWindow);
         if (namedWin != null)
@@ -940,6 +942,7 @@ public class HomeTogetherGame : MonoBehaviour
 
     IEnumerator RunStory()
     {
+        yield return Step0_LetDogOut();
         yield return Step1_HomeAlone();
         yield return Step2_TheNote();
         yield return Step3_ThePhone();
@@ -952,6 +955,41 @@ public class HomeTogetherGame : MonoBehaviour
         if (hidden) yield return Step9a_Closet(ok => success = ok);
         else yield return Step9b_Snow(ok => success = ok);
         yield return Step10_Ending(success);
+    }
+
+    // 0. De hond is binnen en wil naar buiten: hij loopt naar de achterdeur en krabt. Kevin opent, de hond gaat naar buiten, Kevin doet de deur dicht.
+    IEnumerator Step0_LetDogOut()
+    {
+        step = "0 De hond naar buiten";
+        dogInside = false;
+        if (dog == null || backDoor == null) yield break; // zonder hond of achterdeur geen opdracht
+        Vector3 spot = Floor(doorInside + doorOut * 0.3f, 0f);
+        dog.SetActive(true);
+        dog.transform.position = Floor(P.tree - Story.FlatDir(P.start, P.tree, P.forward) * 0.6f, 0f);
+        if (dogAnim != null) dogAnim.speed = 0f;
+        yield return Story.Walk(dog.transform, spot, 2.2f, dogAnim, 0.2f);
+        Story.Face(dog.transform, doorOutside);
+
+        // Krabben aan de deur tot Kevin hem opendoet.
+        backDoor.Locked = false;
+        var scratch = StorySounds.Play("scratch", Floor(spot, 0.4f), 0.6f, true, dog.transform);
+        yield return WaitFor(() =>
+        {
+            OpenIfNoHandle(backDoor, doorInside, backDoorOpenAngle);
+            return Mathf.Abs(backDoor.OpenAngle) > 35f;
+        });
+        StorySounds.Stop(scratch);
+
+        // De hond loopt naar buiten en blijft daar staan.
+        yield return Story.Walk(dog.transform, Floor(doorOutside + doorOut * 2.5f, 0f), 2.5f, dogAnim, 0.2f);
+        Story.Face(dog.transform, doorInside);
+
+        // Deur dicht: zelf door Kevin (met de klink), of vanzelf als de deur geen klink heeft.
+        if (backDoor.HasHandles) yield return WaitFor(() => Mathf.Abs(backDoor.OpenAngle) < 10f);
+        else yield return new WaitForSeconds(2f);
+        CloseBackDoor(); // zwaait dicht en gaat op slot
+        yield return WaitFor(() => Mathf.Abs(backDoor.OpenAngle) < 3f, 3f);
+        dog.SetActive(false);
     }
 
     // 1. Alleen thuis: na 15 s rijdt het busje voorbij, koplampen over het plafond.
@@ -1127,13 +1165,16 @@ public class HomeTogetherGame : MonoBehaviour
             // Warm licht op de hond, zodat Kevin hem goed ziet staan.
             dogLamp = Story.MakeLight("Licht bij hond", Floor(doorOutside, 1.8f), LightType.Point, new Color(1f, 0.85f, 0.6f), 3f, 5f, transform);
         }
-        var scratch = StorySounds.Play("scratch", Floor(doorOutside, 0.4f), 0.4f, true);
-        float t0 = Time.time, nextWhine = Time.time + 6f, nextBark = Time.time + 18f;
+        // Hond moet buiten blijven: de inbreker is er, dus geen gekrab maar vooral geblaf. Hond moet binnen: geblaf en gekrab tot hij binnen is.
+        bool keepOut = vote.winner == "buiten";
+        var scratch = keepOut ? null : StorySounds.Play("scratch", Floor(doorOutside, 0.4f), 0.4f, true);
+        float barkEvery = keepOut ? 3f : 5f;
+        float t0 = Time.time, nextBark = Time.time + (keepOut ? 2f : 6f);
         yield return WaitFor(() =>
         {
             float t = Time.time - t0;
             if (scratch != null) scratch.volume = Mathf.Min(1f, 0.4f + t * 0.03f);
-            if (Time.time > nextBark) { StorySounds.Play("bark", Floor(doorOutside, 0.5f), 1f); nextBark = Time.time + 5f; }
+            if (Time.time > nextBark) { StorySounds.Play("bark", Floor(doorOutside, 0.5f), 1f); nextBark = Time.time + barkEvery; }
             return Near(doorInside, 1.4f);
         });
 
@@ -1160,13 +1201,17 @@ public class HomeTogetherGame : MonoBehaviour
         else
         {
             // Laten (of gelijkspel): Kevin opent zelf. De hond staat er zielig bij, jankt en loopt langzaam weg. Daarna zware stappen in de sneeuw.
-            if (backDoor != null) backDoor.Locked = false;
-            yield return WaitFor(() =>
+            // Bij de keuze "buiten" blijft de deur dicht (de inbreker is er): alleen geblaf, de hond verdwijnt als Kevin bij de deur komt.
+            if (!keepOut)
             {
-                OpenIfNoHandle(backDoor, doorInside, backDoorOpenAngle);
-                return backDoor == null ? Near(doorInside, 0.7f) : Mathf.Abs(backDoor.OpenAngle) > 25f;
-            }, 25f);
-            if (vote.winner == "") KevinDecides(vote, "buiten");
+                if (backDoor != null) backDoor.Locked = false;
+                yield return WaitFor(() =>
+                {
+                    OpenIfNoHandle(backDoor, doorInside, backDoorOpenAngle);
+                    return backDoor == null ? Near(doorInside, 0.7f) : Mathf.Abs(backDoor.OpenAngle) > 25f;
+                }, 25f);
+                if (vote.winner == "") KevinDecides(vote, "buiten");
+            }
             StorySounds.Stop(scratch);
             yield return new WaitForSeconds(2.5f);
             yield return new WaitForSeconds(1.5f);
@@ -1474,7 +1519,11 @@ public class HomeTogetherGame : MonoBehaviour
                 if (hallLight != null) { hallLight.enabled = false; }
             }
         }
-        if (windowOpen) { OpenWindow(); windowHint = true; StartCoroutine(WindowHint()); }
+        if (windowOpen)
+        {
+            if (escapeWindow != null) StartCoroutine(BreakEscapeWindow()); else OpenWindow();
+            windowHint = true; StartCoroutine(WindowHint());
+        }
 
         string chosen = "";
         float nextLure = Time.time + 6f;
@@ -1483,10 +1532,11 @@ public class HomeTogetherGame : MonoBehaviour
             // Lokken: de kast kraakt zacht zolang Kevin er niet is (het open raam lokt al met wind).
             if (closetOpen && Time.time > nextLure) { StorySounds.Play("creak", P.closet, 0.5f, false, null, 1.4f); nextLure = Time.time + 6f; }
             if (closetOpen && InCloset()) chosen = "kast";
-            else if (windowOpen && OutsideWindow()) chosen = "raam";
+            else if (windowOpen && (escapeTouched || OutsideWindow())) chosen = "raam";
             return chosen != "";
         });
         windowHint = false;
+        if (chosen == "raam" && escapeTouch != null) { escapeTouch.enabled = false; CallForHelp(); }
         if (chosen == "") chosen = closetOpen ? "kast" : "raam";
         if (vote.winner == "") KevinDecides(vote, chosen);
         ClosetEnterable = false;
@@ -1594,6 +1644,108 @@ public class HomeTogetherGame : MonoBehaviour
             robTorch.transform.rotation = Quaternion.LookRotation(dir);
             yield return null;
         }
+    }
+
+    // ---------- Vluchtraam (Exterior_WindowA) ----------
+
+    [Header("Vluchtraam")]
+    [Tooltip("Naam van het raam dat bij 'raam' kapot gaat (het exemplaar het dichtst bij Story_Tuinraam).")]
+    public string escapeWindowName = "Exterior_WindowA";
+    [Tooltip("Hoe ver (graden) het raam openwaait.")] public float escapeWindowOpenAngle = 75f;
+
+    GameObject escapeWindow;
+    XRSimpleInteractable escapeTouch;
+    bool escapeTouched;
+
+    void SetupEscapeWindow()
+    {
+        escapeWindow = Named(escapeWindowName, P.gardenWindow);
+        if (escapeWindow == null) { Debug.LogWarning($"[Home Together] Geen '{escapeWindowName}' gevonden bij Story_Tuinraam: het oude tuinraam wordt gebruikt."); return; }
+        P.gardenWindow = Story.Center(escapeWindow); // alles (licht, wind, 'buiten') draait nu rond dit raam
+        foreach (var t in escapeWindow.GetComponentsInChildren<Transform>(true)) windowParts.Add(t.gameObject);
+        escapeTouch = Story.AddInteractable<XRSimpleInteractable>(escapeWindow);
+        escapeTouch.selectEntered.AddListener(_ => escapeTouched = true);
+        escapeTouch.enabled = false; // pas als het raam kapot is
+        string path = escapeWindow.name; for (var q = escapeWindow.transform.parent; q != null && q.parent != null; q = q.parent) path = q.name + "/" + path;
+        Debug.Log($"[Home Together] Vluchtraam: {path}");
+    }
+
+    /// <summary>Het raam gaat kapot: glasgerinkel, glas weg, scherven, het raam waait open en er waait sneeuw naar binnen (alleen hier).</summary>
+    IEnumerator BreakEscapeWindow()
+    {
+        Vector3 c = P.gardenWindow;
+        Vector3 inward = Story.FlatDir(c, P.tree, -P.forward);
+        StorySounds.Play(Resources.Load<AudioClip>("HomeTogetherSounds/glassbreak") != null ? "glassbreak" : "glass", c, 1f);
+        StorySounds.Play("wind", c, 0.8f, true);
+        foreach (var part in windowParts)
+            if (part != null && part.name.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0) part.SetActive(false);
+        // Scherven vallen naar binnen op de vloer.
+        for (int i = 0; i < 12; i++)
+        {
+            var shard = Story.Block("Scherf", PrimitiveType.Cube, c + inward * 0.1f + new Vector3(UnityEngine.Random.Range(-0.3f, 0.3f), UnityEngine.Random.Range(-0.3f, 0.3f), UnityEngine.Random.Range(-0.3f, 0.3f)),
+                new Vector3(UnityEngine.Random.Range(0.02f, 0.07f), 0.004f, UnityEngine.Random.Range(0.02f, 0.06f)), new Color(0.75f, 0.85f, 0.9f), transform, false);
+            shard.transform.rotation = UnityEngine.Random.rotation;
+            StartCoroutine(Fall(shard.transform, UnityEngine.Random.Range(1.5f, 3f)));
+        }
+        StartCoroutine(SnowThroughWindow(c, inward));
+        escapeTouch.enabled = true;
+
+        // Het raam waait open, naar buiten (weg van de kamer).
+        var t = escapeWindow.transform;
+        Quaternion start = t.rotation;
+        Vector3 pivot = t.position;
+        float sign = 1f;
+        {
+            Vector3 rel = Story.Center(escapeWindow) - pivot;
+            Vector3 a = Quaternion.AngleAxis(escapeWindowOpenAngle, Vector3.up) * rel, b = Quaternion.AngleAxis(-escapeWindowOpenAngle, Vector3.up) * rel;
+            sign = Vector3.Dot(a, inward) < Vector3.Dot(b, inward) ? 1f : -1f; // de kant die het minst de kamer in steekt
+        }
+        for (float k = 0f; k < 1f; k += Time.deltaTime / 0.5f)
+        {
+            t.rotation = start;
+            t.RotateAround(pivot, Vector3.up, sign * escapeWindowOpenAngle * Mathf.SmoothStep(0f, 1f, k));
+            yield return null;
+        }
+        t.rotation = start;
+        t.RotateAround(pivot, Vector3.up, sign * escapeWindowOpenAngle);
+    }
+
+    /// <summary>Sneeuw die alleen door het kapotte raam naar binnen waait.</summary>
+    IEnumerator SnowThroughWindow(Vector3 window, Vector3 inward)
+    {
+        var go = new GameObject("Sneeuw door het raam");
+        go.transform.SetParent(transform, false);
+        go.transform.position = window - inward * 0.3f;
+        go.transform.rotation = Quaternion.LookRotation(inward);
+        var ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main = ps.main;
+        main.startLifetime = 3f;
+        main.startSpeed = new ParticleSystem.MinMaxCurve(1.2f, 2.5f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.05f);
+        main.gravityModifier = 0.15f;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.maxParticles = 400;
+        var em = ps.emission; em.rateOverTime = 70f;
+        var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Box; sh.scale = new Vector3(0.8f, 0.9f, 0.05f);
+        var noise = ps.noise; noise.enabled = true; noise.strength = 0.4f; noise.frequency = 0.5f;
+        var col = ps.collision; col.enabled = true; col.type = ParticleSystemCollisionType.World; col.mode = ParticleSystemCollisionMode.Collision3D; col.quality = ParticleSystemCollisionQuality.Low; col.lifetimeLoss = 0.6f;
+        var flakes = FindFirstObjectByType<HomeSnow>();
+        var r = go.GetComponent<ParticleSystemRenderer>();
+        var src = flakes != null ? flakes.GetComponentInChildren<ParticleSystemRenderer>() : null;
+        if (src != null) r.sharedMaterial = src.sharedMaterial;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        ps.Play();
+        yield break;
+    }
+
+    /// <summary>Kevin vraagt hulp via het raam: bij Marley gaat fel licht aan en de deurbel gaat.</summary>
+    void CallForHelp()
+    {
+        marleyLight.range = 80f;
+        marleyLight.intensity = 25f;
+        StorySounds.Play("doorbell", P.marley + Vector3.up * 1.5f, 1f);
+        Debug.Log("[Home Together] Raam: Kevin roept om hulp, licht bij Marley + deurbel.");
     }
 
     bool windowHint;
