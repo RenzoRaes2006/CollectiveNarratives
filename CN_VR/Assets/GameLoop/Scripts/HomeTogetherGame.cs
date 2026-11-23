@@ -535,6 +535,9 @@ public class HomeTogetherGame : MonoBehaviour
         if (noteBody == null) noteBody = note.AddComponent<Rigidbody>();
         noteBody.isKinematic = true;
         noteBody.useGravity = false;
+        // Dezelfde tekst als de opname (Engels).
+        var stickyNote = note.GetComponent<StickyNote>();
+        if (stickyNote != null && !string.IsNullOrWhiteSpace(noteText)) stickyNote.Text = noteText;
         noteGrab = Story.AddInteractable<XRGrabInteractable>(note);
         noteGrab.throwOnDetach = false;
         // Vastpakken (E / grip-knop aan de binnenkant van de controller) = lezen: groot in beeld, mama leest voor.
@@ -547,6 +550,9 @@ public class HomeTogetherGame : MonoBehaviour
 
     [Tooltip("Zo lang blijft het briefje in beeld als er (nog) geen voorlees-opname 'note' is.")]
     public float noteReadSecondsWithoutVoice = 6f;
+
+    [Tooltip("Tekst op de post-it op de koelkast (Engels, zoals de opname 'note').")]
+    [TextArea(2, 5)] public string noteText = "Kevin,\nDon't forget to lock all doors\nMom x";
 
     /// <summary>
     /// Kevin leest het briefje: het komt groot voor zijn ogen, mama's stem leest het voor (geluid "note"), Kevin kan even
