@@ -72,6 +72,8 @@ public class HomeTogetherGame : MonoBehaviour
     [Tooltip("Sneeuw rond het huis (laag om op te lopen, hoopjes en vallende sneeuw).")] public bool snowAroundHouse = true;
     [Tooltip("Een stemming duurt minstens zo lang, ook als Kevin het briefje meteen neerlegt.")] public int minVoteSeconds = 5;
     [Tooltip("Hoe dicht (meter) Kevin bij het midden van de kast moet staan om 'in de kast' te zijn.")] public float closetRadius = 0.75f;
+    [Tooltip("Seconden voor de eerste stemming (telefoon): langer, want Kevin leest dan het briefje.")] public int phoneVoteSeconds = 30;
+    [Tooltip("De telefoonstemming duurt minstens zo lang, ook als Kevin het briefje meteen neerlegt.")] public int phoneMinVoteSeconds = 20;
     [Tooltip("Seconden voor 'inbreker' als de telefoon niet opgenomen werd.")] public int fastVoteSeconds = 8;
     [Tooltip("Seconden voor de samen-actie.")] public int togetherSeconds = 5;
     [Tooltip("Even wachten na het laden voor het verhaal start.")] public float startDelay = 2f;
@@ -375,7 +377,7 @@ public class HomeTogetherGame : MonoBehaviour
     {
         float floorY = originT.position.y;
         float top = headPos.y - 0.1f;
-        float bottom = floorY + 0.55f; // boven stapoffset: drempels, trappen en lage dingen blokkeren niet
+        float bottom = floorY + 0.35f; // boven drempels en traptreden; banken en tafels blokkeren wel
         if (top <= bottom + 0.05f) return false;
         const float r = 0.2f;
         var p1 = new Vector3(headPos.x, bottom + r, headPos.z);
@@ -548,8 +550,40 @@ public class HomeTogetherGame : MonoBehaviour
             if (Story.FlatDist(l.transform.position, P.tree) < 1.5f) treeLights.Add(l); else houseLights.Add(l);
         }
 
-        clock = StorySounds.Play("tick", Floor(P.start - P.right * 2f, 1.8f), 0.35f, true);
-        fridgeHum = StorySounds.Play("hum", P.note, 0.3f, true);
+        AddMissingColliders(houseRoot);
+
+        // Ambient geluid op het echte voorwerp (klok); zonder klok op een vaste plek in de kamer.
+        var clockObj = Story.FindContains("clock", "block");
+        clock = StorySounds.Play("tick", clockObj != null ? Story.Center(clockObj) : Floor(P.start - P.right * 2f, 1.8f), 0.35f, true);
+    }
+
+    /// <summary>
+    /// Meubels zonder collider: de speler (en de inbreker, via het padzoeken) liepen er dwars doorheen.
+    /// Elk object op lichaamshoogte in het huis zonder collider krijgt een doos rond zijn mesh.
+    /// </summary>
+    void AddMissingColliders(Transform houseRoot)
+    {
+        if (houseRoot == null) return;
+        int added = 0;
+        float floorY = P.floorY;
+        foreach (var mf in houseRoot.GetComponentsInChildren<MeshFilter>(false))
+        {
+            var go = mf.gameObject;
+            if (mf.sharedMesh == null || go.GetComponent<Collider>() != null || go.GetComponentInParent<VRDoor>() != null) continue;
+            var r = go.GetComponent<MeshRenderer>();
+            if (r == null || !r.enabled) continue;
+            string n = go.name.ToLowerInvariant();
+            if (n.Contains("glass") || n.Contains("window") || n.Contains("light") || n.Contains("lamp") || n.Contains("door") || n.Contains("handle") || n.Contains("pommel") || n.Contains("curtain")) continue;
+            var b = r.bounds;
+            if (b.min.y > floorY + 1.0f || b.max.y < floorY + 0.3f) continue;        // niet op lichaamshoogte
+            if (b.size.y < 0.3f || Mathf.Max(b.size.x, b.size.z) < 0.25f) continue;   // te klein of te plat (kleed, tegel)
+            if (b.size.x > 8f || b.size.z > 8f) continue;                              // hele vloeren/muren hebben er al een
+            var box = go.AddComponent<BoxCollider>();
+            box.center = mf.sharedMesh.bounds.center;
+            box.size = mf.sharedMesh.bounds.size;
+            added++;
+        }
+        Debug.Log($"[Home Together] {added} meubels kregen een collider (speler en inbreker lopen er niet meer doorheen).");
     }
 
     Vector3 Floor(Vector3 v, float h) => new Vector3(v.x, P.floorY + h, v.z);
@@ -952,7 +986,7 @@ public class HomeTogetherGame : MonoBehaviour
         float next = Time.time + 20f;
         while (!InKitchen() && !Skip())
         {
-            if (Time.time > next) { StorySounds.Play("magnet", P.note, 0.8f); next = Time.time + 20f; }
+            if (Time.time > next) { next = Time.time + 20f; }
             yield return null;
         }
         yield return new WaitForSeconds(2f);
@@ -963,11 +997,9 @@ public class HomeTogetherGame : MonoBehaviour
     {
         Vector3 from = Floor(P.tree, 0.06f), to = Floor(P.phone, 0.06f);
         var ball = Story.Block("Kerstbal", PrimitiveType.Sphere, from, Vector3.one * 0.08f, new Color(0.8f, 0.05f, 0.05f), transform, false);
-        var snd = StorySounds.Play("roll", from, 0.8f);
         for (float t = 0f; t < 1.6f; t += Time.deltaTime)
         {
             ball.transform.position = Vector3.Lerp(from, to, 1f - Mathf.Pow(1f - t / 1.6f, 2f));
-            if (snd != null) snd.transform.position = ball.transform.position;
             yield return null;
         }
     }
@@ -982,11 +1014,11 @@ public class HomeTogetherGame : MonoBehaviour
 
         // De stemming loopt zolang Kevin leest; klaar met lezen = stemming klaar (minstens minVoteSeconds).
         var vote = new VoteRun { id = "telefoon" };
-        StartCoroutine(Vote(vote, voteSeconds));
+        StartCoroutine(Vote(vote, phoneVoteSeconds));
         float readStart = Time.time;
-        while (!vote.done && Time.time - readStart < voteSeconds)
+        while (!vote.done && Time.time - readStart < phoneVoteSeconds)
         {
-            if (!noteReading && Time.time - readStart >= minVoteSeconds) break;
+            if (!noteReading && Time.time - readStart >= phoneMinVoteSeconds) break;
             yield return null;
         }
         vote.stop = true;
@@ -1028,12 +1060,16 @@ public class HomeTogetherGame : MonoBehaviour
                 // Het licht flitst bij "I'll turn my light on", aan het einde van de zin.
                 var marleyClip = StorySounds.Get("marley");
                 yield return new WaitForSeconds(marleyClip != null ? Mathf.Max(2.5f, marleyClip.length - 1.5f) : 2.5f);
-                for (int i = 0; i < 3; i++)
+                // Duidelijk aan: sterk licht met een schakelaar-klik bij elke flits, en het blijft daarna fel branden.
+                marleyLight.range = 80f;
+                for (int i = 0; i < 4; i++)
                 {
-                    marleyLight.intensity = 6f; yield return new WaitForSeconds(0.4f);
-                    marleyLight.intensity = 0f; yield return new WaitForSeconds(0.4f);
+                    marleyLight.intensity = 40f;
+                    yield return new WaitForSeconds(0.5f);
+                    marleyLight.intensity = 0f;
+                    yield return new WaitForSeconds(0.35f);
                 }
-                marleyLight.intensity = 2f; // blijft zacht aan
+                marleyLight.intensity = 25f; // blijft aan
             }
             else burglarsFast = true;
         }
@@ -1074,12 +1110,11 @@ public class HomeTogetherGame : MonoBehaviour
         StartCoroutine(Vote(vote, voteSeconds));
         for (int i = 0; i < 3; i++) // drie trage stappen boven zijn hoofd, van voor naar achter
         {
-            StorySounds.Play("creak", head.position + Vector3.up * 1.3f + head.forward * (1.5f - i * 1.5f), 0.9f);
+            StorySounds.Play("creak", Floor(P.attic + P.forward * (1.5f - i * 1.5f), 2.4f), 0.9f); // boven in het plafond bij het zolderluik
             yield return new WaitForSeconds(1.1f);
         }
         StartCoroutine(Dust(P.attic));
         yield return new WaitForSeconds(1.5f);
-        StorySounds.Play("roll", P.attic + Vector3.up * 0.3f, 0.7f, false, null, 0.6f);
         yield return new WaitUntil(() => vote.done);
 
         step = "5 De hond";
@@ -1089,6 +1124,8 @@ public class HomeTogetherGame : MonoBehaviour
             dog.transform.position = Floor(doorOutside, 0f);
             Story.Face(dog.transform, doorInside);
             if (dogAnim != null) dogAnim.speed = 0f;
+            // Warm licht op de hond, zodat Kevin hem goed ziet staan.
+            dogLamp = Story.MakeLight("Licht bij hond", Floor(doorOutside, 1.8f), LightType.Point, new Color(1f, 0.85f, 0.6f), 3f, 5f, transform);
         }
         var scratch = StorySounds.Play("scratch", Floor(doorOutside, 0.4f), 0.4f, true);
         float t0 = Time.time, nextWhine = Time.time + 6f, nextBark = Time.time + 18f;
@@ -1096,7 +1133,6 @@ public class HomeTogetherGame : MonoBehaviour
         {
             float t = Time.time - t0;
             if (scratch != null) scratch.volume = Mathf.Min(1f, 0.4f + t * 0.03f);
-            if (Time.time > nextWhine) { StorySounds.Play("whine", Floor(doorOutside, 0.5f), 0.8f); nextWhine = Time.time + 8f; }
             if (Time.time > nextBark) { StorySounds.Play("bark", Floor(doorOutside, 0.5f), 1f); nextBark = Time.time + 5f; }
             return Near(doorInside, 1.4f);
         });
@@ -1116,13 +1152,14 @@ public class HomeTogetherGame : MonoBehaviour
                 yield return Story.Walk(dog.transform, Floor(P.tree - Story.FlatDir(P.start, P.tree, P.forward) * 0.6f, 0f), 3f, dogAnim, 0.2f, 2.5f);
             }
             dogInside = true;
+            if (dogLamp != null) { Destroy(dogLamp.gameObject); dogLamp = null; }
             yield return new WaitForSeconds(2f);
             CloseBackDoor();
             StorySounds.Stop(wind);
         }
         else
         {
-            // Laten (of gelijkspel): Kevin opent zelf. De hond gromt en rent weg. Daarna zware stappen in de sneeuw.
+            // Laten (of gelijkspel): Kevin opent zelf. De hond staat er zielig bij, jankt en loopt langzaam weg. Daarna zware stappen in de sneeuw.
             if (backDoor != null) backDoor.Locked = false;
             yield return WaitFor(() =>
             {
@@ -1131,14 +1168,15 @@ public class HomeTogetherGame : MonoBehaviour
             }, 25f);
             if (vote.winner == "") KevinDecides(vote, "buiten");
             StorySounds.Stop(scratch);
-            StorySounds.Play("growl", Floor(doorOutside, 0.4f), 0.9f);
-            yield return new WaitForSeconds(1f);
+            yield return new WaitForSeconds(2.5f);
+            yield return new WaitForSeconds(1.5f);
             if (dog != null)
             {
                 Vector3 away = doorOutside + doorOut * 15f + Vector3.Cross(Vector3.up, doorOut) * 6f;
-                yield return Story.Walk(dog.transform, away, 4f, dogAnim);
+                yield return Story.Walk(dog.transform, away, 1.4f, dogAnim); // langzaam weg
                 dog.SetActive(false);
             }
+            if (dogLamp != null) { Destroy(dogLamp.gameObject); dogLamp = null; }
             yield return WaitFor(() => backDoor == null || Mathf.Abs(backDoor.OpenAngle) < 10f, 8f);
             CloseBackDoor();
             yield return new WaitForSeconds(3f);
@@ -1147,6 +1185,8 @@ public class HomeTogetherGame : MonoBehaviour
         }
         choices.Add("hond=" + vote.winner);
     }
+
+    Light dogLamp;
 
     void OpenBackDoor(float speed)
     {
@@ -1229,12 +1269,11 @@ public class HomeTogetherGame : MonoBehaviour
     IEnumerator Step6_PowerOut(VoteRun vote)
     {
         step = "6 De stroom valt uit";
-        if (dogInside) StorySounds.Play("jingle", P.tree, 0.5f);
         yield return WaitFor(InLiving, 20f);
+        if (dogInside) StorySounds.Play("jingle", P.tree, 0.5f);
         StorySounds.Play("clunk", P.fuseBox, 1f);
         StartCoroutine(Vote(vote, voteSeconds));
         yield return Blackout();
-        if (dogInside && dog != null) StorySounds.Play("whine", dog.transform.position + Vector3.up * 0.4f, 0.7f);
         yield return new WaitUntil(() => vote.done);
     }
 
@@ -1310,7 +1349,6 @@ public class HomeTogetherGame : MonoBehaviour
             if (engineRoomLight == null)
                 engineRoomLight = Story.MakeLight("Licht kelderkamer", P.fuseBox + Vector3.up * 0.4f, LightType.Point, new Color(1f, 0.6f, 0.25f), 0f, 5f, transform);
             StartCoroutine(Flicker(engineRoomLight, 2.5f, () => !lightsOn));
-            fuseHum = StorySounds.Play("hum", P.fuseBox, 0.5f, true, null, 1.5f);
             if (cellarDoor != null) cellarDoor.Locked = false;
             leverTouch.enabled = true;
         }
@@ -1341,7 +1379,7 @@ public class HomeTogetherGame : MonoBehaviour
             if (cellarDoor != null) { cellarDoor.SwingTo(0f, 400f); cellarDoor.Locked = false; StorySounds.Play("slam", P.cellarDoor, 0.4f); }
             yield return new WaitForSeconds(2f);
             if (cellarDoor != null && !cellarDoor.HasHandles) StartCoroutine(KeepCellarPassable());
-            if (dogInside) StorySounds.Play("bark", P.tree, 0.8f); else StorySounds.Play("creak", Floor(head.position - head.forward * 1.5f, 0f), 0.8f);
+            if (dogInside) StorySounds.Play("bark", P.tree, 0.8f); else StorySounds.Play("creak", Floor(doorInside, 0.5f), 0.8f);
         }
         else
         {
@@ -1410,7 +1448,7 @@ public class HomeTogetherGame : MonoBehaviour
                 StartCoroutine(SweepTorch());
             }
             StartCoroutine(Footsteps("step", doorOutside, doorInside, 4, 0.6f, 1f));
-            yield return Story.Walk(rob.transform, doorInside, 0.9f, robAnim);
+            yield return Story.Walk(rob.transform, doorInside, 0.9f, robAnim, 0.3f);
         }
         yield return new WaitUntil(() => vote.done);
 
@@ -1433,10 +1471,10 @@ public class HomeTogetherGame : MonoBehaviour
                 float best = 5f;
                 foreach (var l in houseLights)
                     if (l != null && Vector3.Distance(l.transform.position, doorInside) < best) { best = Vector3.Distance(l.transform.position, doorInside); hallLight = l; }
-                if (hallLight != null) { hallLight.enabled = false; StorySounds.Play("magnet", hallLight.transform.position, 0.6f, false, null, 0.5f); }
+                if (hallLight != null) { hallLight.enabled = false; }
             }
         }
-        if (windowOpen) OpenWindow();
+        if (windowOpen) { OpenWindow(); windowHint = true; StartCoroutine(WindowHint()); }
 
         string chosen = "";
         float nextLure = Time.time + 6f;
@@ -1448,6 +1486,7 @@ public class HomeTogetherGame : MonoBehaviour
             else if (windowOpen && OutsideWindow()) chosen = "raam";
             return chosen != "";
         });
+        windowHint = false;
         if (chosen == "") chosen = closetOpen ? "kast" : "raam";
         if (vote.winner == "") KevinDecides(vote, chosen);
         ClosetEnterable = false;
@@ -1557,6 +1596,27 @@ public class HomeTogetherGame : MonoBehaviour
         }
     }
 
+    bool windowHint;
+
+    /// <summary>Het open raam is de vluchtroute: koud licht valt naar binnen en pulseert, met een lichtspoor naar het raam.</summary>
+    IEnumerator WindowHint()
+    {
+        var cold = new Color(0.6f, 0.75f, 1f);
+        var main = Story.MakeLight("Licht raam", P.gardenWindow + Vector3.up * 0.3f, LightType.Point, cold, 0f, 7f, transform);
+        var path = Story.MakeLight("Lichtspoor raam", Floor(Vector3.Lerp(doorInside, P.gardenWindow, 0.55f), 0.4f), LightType.Point, cold, 0f, 4f, transform);
+        StartCoroutine(Pulse(main, 4f, 10f, () => windowHint));
+        StartCoroutine(Pulse(path, 1f, 4f, () => windowHint));
+        float next = Time.time + 3f;
+        while (windowHint)
+        {
+            if (Time.time > next) { StorySounds.Play("wind", P.gardenWindow, 0.7f); next = Time.time + 5f; }
+            yield return null;
+        }
+        yield return null;
+        if (main != null) Destroy(main.gameObject);
+        if (path != null) Destroy(path.gameObject);
+    }
+
     void OpenWindow()
     {
         // Een windvlaag gooit het tuinraam open: glas weg, wind en sneeuw naar binnen.
@@ -1593,10 +1653,10 @@ public class HomeTogetherGame : MonoBehaviour
                 robTorch = Story.MakeLight("Zaklamp inbreker", rob.transform.position + Vector3.up * 1.5f, LightType.Spot, Color.white, 6f, 15f, rob.transform);
                 robTorch.spotAngle = 35f;
             }
-            yield return Story.Walk(rob.transform, front + side * 1.8f, 0.8f, robAnim); // komt van rechts
+            yield return Story.Walk(rob.transform, front + side * 1.8f, 0.8f, robAnim, 0.3f); // komt van rechts
             StartCoroutine(TorchOnCloset());
             StartCoroutine(Footsteps("step", front + side * 1.8f, front, 3, 0.7f, 0.9f));
-            yield return Story.Walk(rob.transform, front, 0.6f, robAnim);
+            yield return Story.Walk(rob.transform, front, 0.6f, robAnim, 0.3f);
             Story.Face(rob.transform, P.closet);
             breath = StorySounds.Play("breath", rob.transform.position + Vector3.up * 1.6f, 0.8f, true, rob.transform);
         }
@@ -1637,10 +1697,8 @@ public class HomeTogetherGame : MonoBehaviour
         step = "9b Door de sneeuw";
         if (rob != null) rob.SetActive(false);
         yield return new WaitForSeconds(1f);
-        StorySounds.Play("gate", Floor(head.position - head.forward * 7f, 1f), 1f);
         StartCoroutine(Follower());
         yield return new WaitForSeconds(4f);
-        StorySounds.Play("snowslide", Floor(P.gardenWindow, 3f), 0.9f);
         yield return new WaitForSeconds(2f);
         yield return JointAction(done);
     }

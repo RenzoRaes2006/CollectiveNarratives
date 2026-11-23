@@ -44,7 +44,8 @@ public static class StorySounds
         {
             // Echte opname: Assets/GameLoop/Resources/HomeTogetherSounds/<naam>.wav (of .mp3/.ogg). Anders plaatshouder.
             clip = Resources.Load<AudioClip>("HomeTogetherSounds/" + name);
-            if (clip == null) clip = Make(name);
+            // Geen eigen opname = geen geluid, behalve de kerstjingle (die blijft als gemaakt geluid).
+            if (clip == null && name == "jingle") clip = Make(name);
             cache[name] = clip;
         }
         return clip;

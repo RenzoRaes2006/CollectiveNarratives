@@ -290,7 +290,8 @@ public static class Story
         foreach (var c in hits)
         {
             if (c.transform.IsChildOf(who) || c is CharacterController) continue;
-            if (c.attachedRigidbody != null && !c.attachedRigidbody.isKinematic) continue; // losse spullen duwen we weg
+            // Alleen kleine losse spullen duwen we weg; zware meubels met een rigidbody blokkeren wel.
+            if (c.attachedRigidbody != null && !c.attachedRigidbody.isKinematic && c.bounds.size.magnitude < 0.6f) continue;
             if (c.GetComponentInParent<XROrigin>() != null) continue; // de speler zelf
             return true;
         }
